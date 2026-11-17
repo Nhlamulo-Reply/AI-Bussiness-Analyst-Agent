@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createServer } from "node:http";
 import { createApp } from "./app";
 import { loadConfig } from "./config/env";
-import { MongoDatabase } from "./config/database";
+import { JsonFileStorage } from "./config/storage";
 import { createLogger } from "./config/logger";
 
 export async function startServer(): Promise<{
@@ -11,18 +11,18 @@ export async function startServer(): Promise<{
 }> {
   const config = loadConfig();
   const logger = createLogger(config);
-  const database = new MongoDatabase(config);
+  const storage = new JsonFileStorage(config);
 
   try {
-    await database.connect();
+    await storage.connect();
   } catch (error) {
     logger.fatal({
       errorName: error instanceof Error ? error.name : "UnknownError"
-    }, "MongoDB connection failed; server startup aborted");
+    }, "JSON storage initialization failed; server startup aborted");
     throw error;
   }
 
-  const app = createApp({ config, database, users: database, logger });
+  const app = createApp({ config, storage, users: storage, logger });
   const server = createServer(app);
 
   await new Promise<void>((resolve, reject) => {
@@ -32,7 +32,7 @@ export async function startServer(): Promise<{
       resolve();
     });
   }).catch(async (error: unknown) => {
-    await database.close();
+    await storage.close();
     throw error;
   });
 
@@ -47,7 +47,7 @@ export async function startServer(): Promise<{
             reject(error);
             return;
           }
-          void database.close().then(resolve, reject);
+          void storage.close().then(resolve, reject);
         });
       });
     }
@@ -69,7 +69,7 @@ if (require.main === module) {
     if (error instanceof Error && error.message.startsWith("Invalid environment configuration:")) {
       console.error(error.message);
     } else {
-      console.error("Backend startup failed; check the configuration and MongoDB availability.");
+      console.error("Backend startup failed; check the configuration and JSON storage file access.");
     }
     process.exitCode = 1;
   });

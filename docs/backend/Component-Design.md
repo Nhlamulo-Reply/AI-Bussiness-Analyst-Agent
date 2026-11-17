@@ -96,10 +96,12 @@ The backend is a modular monolith with distinct component groups for API handlin
 ## Dependency design
 
 - Application services depend on repositories and workflow interfaces.
-- Repositories depend on the MongoDB client and database connection layer.
+- Repositories depend on a storage adapter. Phase 3 currently uses a temporary JSON-file adapter; MongoDB is the planned later adapter.
 - Workflow nodes depend on the LLM provider adapter and schema validation layer.
 - Shared middleware depends only on config and logging utilities.
 
 ## Design note
 
 The architecture does not assume an existing repository layout. It is a component blueprint for a greenfield implementation and must be adapted to the actual repo once the backend is scaffolded.
+
+The current implementation uses `backend/src/config/storage.ts` as the temporary JSON-file adapter. MongoDB-specific collection/index decisions below remain the planned target, not the current runtime behavior.

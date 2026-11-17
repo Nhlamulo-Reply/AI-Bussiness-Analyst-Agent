@@ -1,6 +1,6 @@
 import express from "express";
+import { randomUUID } from "node:crypto";
 import { sign } from "jsonwebtoken";
-import { ObjectId } from "mongodb";
 import request from "supertest";
 import { errorHandler } from "../src/common/middleware/error-handler";
 import { authenticate, requireRoles } from "../src/common/middleware/authentication";
@@ -9,7 +9,7 @@ import { requireProjectAccess } from "../src/common/middleware/project-access";
 const secret = "a-secure-test-secret-with-at-least-32-characters";
 
 function createToken(roles: Array<"user" | "reviewer" | "admin" | "project_owner">): string {
-  return sign({ roles }, secret, { subject: new ObjectId().toString(), expiresIn: 900 });
+  return sign({ roles, email: "tester@example.com" }, secret, { subject: randomUUID(), expiresIn: 900 });
 }
 
 describe("authorization middleware", () => {
@@ -51,7 +51,7 @@ describe("authorization middleware", () => {
     app.use(errorHandler);
 
     const response = await request(app)
-      .get(`/projects/${new ObjectId().toString()}`)
+      .get(`/projects/${randomUUID()}`)
       .set("Authorization", `Bearer ${createToken(["user"])}`);
 
     expect(response.status).toBe(204);
@@ -73,7 +73,7 @@ describe("authorization middleware", () => {
     app.use(errorHandler);
 
     const response = await request(app)
-      .get(`/projects/${new ObjectId().toString()}`)
+      .get(`/projects/${randomUUID()}`)
       .set("Authorization", `Bearer ${createToken(["user"])}`);
 
     expect(response.status).toBe(404);

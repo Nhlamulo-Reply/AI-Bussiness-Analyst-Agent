@@ -1,160 +1,60 @@
-# API Specification (Draft)
+# Backend API Specification
 
-## Base URL
+Base path: `/api/v1`. Authenticated endpoints require `Authorization: Bearer <token>`. Successful JSON responses use `{ "success": true, "data": ..., "requestId": "..." }`; errors use the shared error envelope and include a request ID. The matching OpenAPI 3.1 document is served at `/api-docs`.
 
-`/api/v1`
+## Phase 3 foundation
 
-## Common response patterns
+| Method | Path | Behavior |
+|---|---|---|
+| `GET` | `/health/live` | Process liveness, independent of storage. |
+| `GET` | `/health/ready` | Checks JSON-file storage and returns `503` if unavailable. |
+| `POST` | `/auth/register` | Creates a standard user; email and 12–128 character password required. |
+| `POST` | `/auth/login` | Authenticates credentials and returns a short-lived JWT. |
+| `GET` | `/auth/me` | Returns the authenticated user. |
 
-### Success response
+JSON-file storage is temporary, single-process storage configured by `JSON_STORAGE_PATH`; MongoDB is deferred.
 
-```json
-{
-  "success": true,
-  "data": {},
-  "requestId": "req_123"
-}
-```
+## Phase 4 project and domain APIs
 
-### Error response
+| Method | Path | Behavior |
+|---|---|---|
+| `POST` | `/projects` | Creates a project owned by the authenticated user. |
+| `GET` | `/projects?page=&limit=` | Lists accessible projects (limit 1–100). |
+| `GET` | `/projects/:id` | Reads an accessible project. |
+| `PATCH` | `/projects/:id/members` | Project owner replaces members using `{ "memberIds": ["..."] }`; all IDs must belong to registered users. |
+| `POST` | `/projects/:id/documents` | Multipart field `file`; PDF, DOCX, UTF-8 text only; maximum 5 MiB. The response and document list contain metadata only, not file bytes. |
+| `GET` | `/projects/:id/documents` | Lists uploaded document metadata. |
+| `POST` | `/projects/:id/requirements` | Creates a draft requirement; linked documents must belong to the same project. |
+| `GET` | `/projects/:id/requirements?page=&limit=` | Lists requirements. |
+| `PATCH` | `/requirements/:id` | Revises a requirement, sets it back to draft, and stores the prior version. |
+| `GET` | `/requirements/:id/versions` | Lists requirement snapshots. |
+| `GET` | `/artifacts/:id/versions?type=...` | Lists snapshots for a supported artifact type. |
+| `POST` | `/projects/:id/artifacts` | Creates a draft epic, story, acceptance criteria, business rule, risk, dependency, or implementation plan record; linked requirements must belong to the project. |
+| `GET` | `/projects/:id/artifacts?page=&limit=` | Lists project artifacts. |
+| `POST` | `/approvals` | Submits a requirement/artifact for review. |
+| `PATCH` | `/approvals/:id` | Reviewer/admin decides pending submission; self-review is rejected and completed approvals cannot be changed. |
+| `PATCH` | `/users/:id/roles` | Admin assigns roles. New registrations cannot assign elevated roles. Role changes apply to newly issued tokens. |
+| `GET` | `/projects/:id/export?format=json\|markdown\|csv` | Exports project, requirements, artifacts, and approval data. Document file bytes are excluded. |
 
-```json
-{
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "The request payload is invalid.",
-    "details": [
-      {
-        "field": "projectName",
-        "reason": "Required"
-      }
-    ],
-    "requestId": "req_123"
-  }
-}
-```
+Project resources are visible only to the project owner and members. Project-member editing is owner-only. Approval decisions create a version snapshot and update the underlying artifact status. For initial local setup, an administrator must be provisioned out of band in the JSON store before using admin-only role assignment.
 
-All implemented responses include the request ID. Error responses include `success: false` and an `error` object containing `code`, `message`, `details`, and `requestId`.
+## Phase 5 workflow placeholders
 
-## Phase 3 foundation endpoints
+The following authenticated endpoints validate the project request but intentionally return `501 NOT_IMPLEMENTED` without creating or fabricating results:
 
-### `GET /health/live`
-Returns `200` when the API process is running. It does not depend on MongoDB.
+- `POST /requirements/analyze`
+- `POST /requirements/extract`
+- `POST /stories/generate`
+- `POST /acceptance-criteria/generate`
+- `POST /requirements/validate`
+- `POST /risks/analyze`
+- `POST /roadmap/generate`
 
-### `GET /health/ready`
-Pings MongoDB and returns `200` when the database is reachable, or `503 SERVICE_UNAVAILABLE` otherwise.
+`GET /executions/:id` returns an execution record only when one exists and the caller can access its project. AI execution remains Phase 5 work.
 
-### `POST /auth/register`
-Creates an account with the `user` role. The request requires a valid email and a password between 12 and 128 characters. Roles with elevated permissions are not accepted from the request.
+## Operational notes
 
-### `POST /auth/login`
-Accepts the same email/password fields and returns a short-lived bearer access token. Invalid credentials return a generic `401 INVALID_CREDENTIALS` response.
-
-### `GET /auth/me`
-Requires `Authorization: Bearer <token>` and returns the authenticated user.
-
-The implemented endpoints are served under `/api/v1`; Swagger UI is available at `/api-docs`. Domain endpoints below remain planned for later phases.
-
-## Core endpoints
-
-### `POST /api/v1/projects`
-Creates a project.
-
-Request body:
-```json
-{
-  "name": "AI Business Analyst Agent",
-  "description": "Project description"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "id": "project_123",
-    "name": "AI Business Analyst Agent",
-    "status": "active"
-  }
-}
-```
-
-### `GET /api/v1/projects`
-Lists accessible projects with pagination.
-
-Query params:
-- `page`
-- `limit`
-- `sort`
-
-### `GET /api/v1/projects/:id`
-Returns a project record and metadata.
-
-### `POST /api/v1/projects/:id/documents`
-Uploads a BRD or supporting document.
-
-Request:
-- multipart/form-data
-- file upload
-- optional document metadata
-
-### `POST /api/v1/requirements/analyze`
-Starts a requirement analysis workflow with asynchronous execution.
-
-### `POST /api/v1/requirements/extract`
-Starts a requirement extraction workflow.
-
-### `GET /api/v1/projects/:id/requirements`
-Lists project requirements with pagination.
-
-### `PATCH /api/v1/requirements/:id`
-Edits a requirement.
-
-### `POST /api/v1/stories/generate`
-Requests story generation.
-
-### `POST /api/v1/acceptance-criteria/generate`
-Requests acceptance criteria generation.
-
-### `POST /api/v1/requirements/validate`
-Requests a quality review.
-
-### `POST /api/v1/risks/analyze`
-Requests risk analysis.
-
-### `POST /api/v1/roadmap/generate`
-Requests roadmap generation.
-
-### `POST /api/v1/approvals`
-Submits an artifact for approval.
-
-### `PATCH /api/v1/approvals/:id`
-Approves, rejects, or requests changes.
-
-### `GET /api/v1/projects/:id/export`
-Exports selected project artifacts as JSON, Markdown, or CSV.
-
-## Execution tracking endpoints
-
-### `GET /api/v1/executions/:id`
-Returns workflow execution status and current node state.
-
-Response example:
-```json
-{
-  "success": true,
-  "data": {
-    "id": "exec_123",
-    "status": "running",
-    "workflowName": "requirements-analysis",
-    "currentNode": "RequirementExtractionNode",
-    "startedAt": "2026-11-16T10:00:00Z"
-  }
-}
-```
-
-## OpenAPI note
-
-This is a draft contract and should be formalized in the implemented backend with a real OpenAPI document once the scaffold is created. The final Swagger/OpenAPI file must match the actual backend endpoints and schemas at implementation time.
+- Swagger UI is available at `/api-docs`.
+- Pagination rejects invalid page/limit values rather than silently clamping them.
+- File upload errors use `400` for unsupported/mismatched content and `413` for files over 5 MiB.
+- MongoDB, AI model integrations, document text extraction, and actual asynchronous workflows are not implemented in Phase 4.

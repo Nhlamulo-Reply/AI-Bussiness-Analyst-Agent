@@ -11,13 +11,16 @@ The backend must protect project data, human review processes, and AI-generated 
 - Role model: `user`, `reviewer`, `admin`, optionally `project_owner`
 - Project memberships and ownership checks on every project-scoped action
 - Resource authorization enforced at service or controller layer
-- Public registration assigns only the `user` role; elevated roles are assigned outside registration.
+- Public registration assigns only the `user` role. An admin can assign roles through the role-management API; initial local admin provisioning is out-of-band for the temporary JSON store.
 - Project access is limited to the owning user or an explicit project member; a global admin role does not bypass project membership.
+- Only the project owner can replace the member list; added users must already be registered.
+- Role claims are included in JWTs, so role changes apply to newly issued tokens and users must log in again.
 
 ### Input validation and request safety
 - All inputs validated using Zod before controller/service logic executes
-- Uploaded file types and sizes limited and validated
-- Document content treated as untrusted and sanitized before analysis
+- Uploads are limited to PDF, DOCX, and UTF-8 text with a 5 MiB file limit, MIME/extension matching, and basic signature/content checks.
+- File bytes are stored base64-encoded in the temporary JSON file and are omitted from metadata responses and exports.
+- No document parser or AI analysis is implemented yet; document contents must be treated as untrusted if Phase 5 parsing is introduced.
 
 ### Prompt injection defense
 - System prompts are kept separate from user or document text
@@ -30,6 +33,7 @@ The backend must protect project data, human review processes, and AI-generated 
 - Secrets stored in environment variables or a secret manager
 - Logs contain no tokens, passwords, API keys, or sensitive document content
 - Request logs omit headers and bodies; sensitive field names are redacted.
+- The temporary JSON file contains account emails and password hashes. Keep it out of version control, restrict access to the local file, and do not use this single-process store as a production database.
 
 ### Rate limiting and HTTP security
 - rate limits for authentication endpoints (10 requests per 15 minutes per client IP)
@@ -37,7 +41,7 @@ The backend must protect project data, human review processes, and AI-generated 
 - bearer tokens are not stored in cookies
 - TLS-only deployment in production
 
-### Phase 3 implementation decisions
+### Phase 3–4 implementation decisions
 - Passwords are hashed with bcryptjs (cost factor 12) and are never returned by API responses.
 - Access tokens expire after 900 seconds by default; the lifetime is environment-configurable within a bounded range.
 - The JWT secret is required at startup and must be at least 32 characters.
