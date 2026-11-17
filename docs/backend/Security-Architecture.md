@@ -7,10 +7,12 @@ The backend must protect project data, human review processes, and AI-generated 
 ## Core security controls
 
 ### Identity and access
-- Authenticated users via JWT or secure session tokens
+- Authenticated users via short-lived JWT bearer tokens
 - Role model: `user`, `reviewer`, `admin`, optionally `project_owner`
 - Project memberships and ownership checks on every project-scoped action
 - Resource authorization enforced at service or controller layer
+- Public registration assigns only the `user` role; elevated roles are assigned outside registration.
+- Project access is limited to the owning user or an explicit project member; a global admin role does not bypass project membership.
 
 ### Input validation and request safety
 - All inputs validated using Zod before controller/service logic executes
@@ -27,12 +29,19 @@ The backend must protect project data, human review processes, and AI-generated 
 - Request IDs and execution IDs for traceability
 - Secrets stored in environment variables or a secret manager
 - Logs contain no tokens, passwords, API keys, or sensitive document content
+- Request logs omit headers and bodies; sensitive field names are redacted.
 
 ### Rate limiting and HTTP security
-- rate limits for authentication and analysis endpoints
+- rate limits for authentication endpoints (10 requests per 15 minutes per client IP)
 - security headers for browser clients
-- secure cookies and token storage settings
+- bearer tokens are not stored in cookies
 - TLS-only deployment in production
+
+### Phase 3 implementation decisions
+- Passwords are hashed with bcryptjs (cost factor 12) and are never returned by API responses.
+- Access tokens expire after 900 seconds by default; the lifetime is environment-configurable within a bounded range.
+- The JWT secret is required at startup and must be at least 32 characters.
+- Environment values are validated before the server starts.
 
 ## Approval and human-in-the-loop model
 
