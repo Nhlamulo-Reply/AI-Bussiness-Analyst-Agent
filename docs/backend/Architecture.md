@@ -13,16 +13,16 @@ This document defines the architecture for the AI Business Analyst Agent backend
 - AI output is treated as draft and subject to human approval.
 - Source facts, assumptions, open questions, and recommendations are tracked separately.
 
-## Recommended runtime baseline
+## Implemented runtime baseline (Phase 3)
 
-This is the design baseline for the implementation phase. The exact dependency versions must be confirmed during the scaffold step and pinned in `package.json`.
+The backend foundation is implemented under `backend/`. Dependency versions are pinned in its `package.json`.
 
-- Node.js: 20 LTS (recommended baseline)
-- TypeScript: 5.x (strict mode enabled)
-- Express.js: current stable supported by the selected Node.js version
-- MongoDB driver: current stable MongoDB Node driver compatible with the chosen Node version
-- LangGraph.js: selected package versions must match the chosen Node.js/TypeScript versions and must be installed only after compatibility verification
-- LLM provider SDKs: OpenAI and/or Anthropic SDKs selected to match the chosen runtime
+- Node.js: 20.19 or newer; development verified with Node.js 22.19
+- TypeScript: 5.9.3 (strict mode enabled)
+- Express.js: 5.3.0
+- MongoDB Node.js driver: 7.9.0
+- Zod: 4.6.7
+- LangGraph.js and LLM provider SDKs: deferred to Phase 5, with compatibility to be verified before selection
 
 ## High-level architecture
 
@@ -143,3 +143,4 @@ Each AI execution should persist:
 - Graph nodes must be explicit and typed.
 - Workflow input and output must be schema-validated.
 - The implementation must abide by the mandatory Phase approval gates in the project plan.
+- Phase 3 provides the server, MongoDB connection lifecycle, health/readiness endpoints, request IDs, structured logging, validation, error handling, JWT authentication, RBAC/project-access middleware, rate limiting, security headers, and Swagger UI. Domain APIs and LangGraph workflows remain later-phase work.
