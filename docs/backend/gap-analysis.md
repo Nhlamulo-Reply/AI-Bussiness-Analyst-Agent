@@ -1,5 +1,7 @@
 # Gap Analysis Against the Backend Phase Plan
 
+> Historical Phase 1 snapshot. The Phase 3 foundation has since been implemented; see `current-structure.md` for current status. Phase 4+ gaps below remain deferred.
+
 ## Executive summary
 
 The repository is missing the required backend implementation entirely. The project specification and phase plan are present, but no application code or infrastructure exists to build on. This means the project is still at the Phase 1 assessment stage and cannot legally enter Phase 2 without explicit approval and a clear repository direction.

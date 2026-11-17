@@ -2,6 +2,8 @@
 
 ## Scope and status
 
+> Historical Phase 1 snapshot. The Phase 2 design documents and Phase 3 backend foundation were added afterward; the repository state is summarized in `current-structure.md`.
+
 This repository does not currently contain a backend implementation. The workspace contains the project planning document and presentation/document assets only. Per the mandatory Phase 1 protocol, this assessment is limited to repository inspection and documentation; no backend implementation, scaffolding, or next-phase code was created.
 
 ## Inspection summary

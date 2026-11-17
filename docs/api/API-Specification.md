@@ -35,6 +35,27 @@
 }
 ```
 
+All implemented responses include the request ID. Error responses include `success: false` and an `error` object containing `code`, `message`, `details`, and `requestId`.
+
+## Phase 3 foundation endpoints
+
+### `GET /health/live`
+Returns `200` when the API process is running. It does not depend on MongoDB.
+
+### `GET /health/ready`
+Pings MongoDB and returns `200` when the database is reachable, or `503 SERVICE_UNAVAILABLE` otherwise.
+
+### `POST /auth/register`
+Creates an account with the `user` role. The request requires a valid email and a password between 12 and 128 characters. Roles with elevated permissions are not accepted from the request.
+
+### `POST /auth/login`
+Accepts the same email/password fields and returns a short-lived bearer access token. Invalid credentials return a generic `401 INVALID_CREDENTIALS` response.
+
+### `GET /auth/me`
+Requires `Authorization: Bearer <token>` and returns the authenticated user.
+
+The implemented endpoints are served under `/api/v1`; Swagger UI is available at `/api-docs`. Domain endpoints below remain planned for later phases.
+
 ## Core endpoints
 
 ### `POST /api/v1/projects`
