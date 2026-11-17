@@ -37,7 +37,7 @@ describe("JsonFileStorage", () => {
     const reloadedStorage = new JsonFileStorage({ jsonStoragePath: filePath });
     await reloadedStorage.connect();
 
-    expect(persistedContents.version).toBe(1);
+    expect(persistedContents.version).toBe(2);
     expect(persistedContents.users).toEqual([{ id: user.id, email: user.email, passwordHash: "bcrypt-hash", roles: ["user"], createdAt: user.createdAt, updatedAt: user.updatedAt }]);
     expect(await reloadedStorage.findByEmail(user.email)).toEqual(user);
     await reloadedStorage.close();

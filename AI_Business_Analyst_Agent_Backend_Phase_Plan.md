@@ -335,11 +335,18 @@ Implement the domain modules and APIs required for:
 | POST | `/api/v1/projects` | Create a project |
 | GET | `/api/v1/projects` | List accessible projects |
 | GET | `/api/v1/projects/:id` | Get project details |
+| PATCH | `/api/v1/projects/:id/members` | Replace project members (owner only) |
 | POST | `/api/v1/projects/:id/documents` | Upload a BRD/supporting document |
+| GET | `/api/v1/projects/:id/documents` | List document metadata |
 | POST | `/api/v1/requirements/analyze` | Submit an analysis job |
 | POST | `/api/v1/requirements/extract` | Submit a requirement extraction job |
+| POST | `/api/v1/projects/:id/requirements` | Create a draft requirement |
 | GET | `/api/v1/projects/:id/requirements` | List project requirements |
 | PATCH | `/api/v1/requirements/:id` | Edit a requirement |
+| GET | `/api/v1/requirements/:id/versions` | List requirement versions |
+| GET | `/api/v1/artifacts/:id/versions?type=...` | List artifact versions |
+| POST | `/api/v1/projects/:id/artifacts` | Create a draft domain artifact |
+| GET | `/api/v1/projects/:id/artifacts` | List project artifacts |
 | POST | `/api/v1/stories/generate` | Request story generation |
 | POST | `/api/v1/acceptance-criteria/generate` | Request acceptance criteria |
 | POST | `/api/v1/requirements/validate` | Request quality review |
@@ -347,13 +354,15 @@ Implement the domain modules and APIs required for:
 | POST | `/api/v1/roadmap/generate` | Request roadmap generation |
 | POST | `/api/v1/approvals` | Submit an artifact for approval |
 | PATCH | `/api/v1/approvals/:id` | Approve, reject or request changes |
+| PATCH | `/api/v1/users/:id/roles` | Assign roles (admin only) |
 | GET | `/api/v1/projects/:id/export` | Export project artifacts |
+| GET | `/api/v1/executions/:id` | Read an existing execution record |
 
-The analysis/generation endpoints may initially return a clear `501 Not Implemented` or an agreed job placeholder until Phase 5. Do not fake AI results.
+The analysis/generation endpoints currently return a clear `501 Not Implemented` without creating or fabricating results until Phase 5.
 
 ### Approval checkpoint
 
-Demonstrate CRUD operations, persistence, ownership enforcement, validation, pagination and API tests. Wait for approval before Phase 5.
+Demonstrate project/domain persistence, ownership and membership enforcement, document validation, requirement versioning, approval transitions, exports, pagination and API tests. Wait for approval before Phase 5.
 
 ---
 

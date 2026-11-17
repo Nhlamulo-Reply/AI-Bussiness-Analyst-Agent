@@ -10,7 +10,7 @@ export interface ProjectRepository {
 export function requireProjectAccess(projects: ProjectRepository): RequestHandler {
   return async (request, _response, next) => {
     const user = request.user;
-    const projectParam = request.params.id;
+    const projectParam = request.params.id ?? request.params.projectId ?? request.body?.projectId;
     const projectId = Array.isArray(projectParam) ? projectParam[0] : projectParam;
     if (!user) {
       next(new AppError(401, "UNAUTHORIZED", "Authentication is required."));
