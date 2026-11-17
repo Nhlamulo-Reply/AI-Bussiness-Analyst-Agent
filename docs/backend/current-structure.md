@@ -52,7 +52,7 @@ C:/Users/SefediFrancisKgomo/AI-Bussiness-Analyst-Agent
 
 - Node.js/TypeScript package configuration with strict compiler settings and development/build/test scripts
 - Express application and server bootstrap
-- Validated environment configuration and MongoDB connection lifecycle
+- Validated environment configuration and temporary JSON-file storage lifecycle
 - User repository, password hashing, JWT registration/login/current-user endpoints
 - Authentication, role-check and project-membership middleware
 - Request IDs, structured logging, centralized errors, Zod request validation
@@ -72,7 +72,7 @@ C:/Users/SefediFrancisKgomo/AI-Bussiness-Analyst-Agent
 |---|---|
 | Application code | Phase 3 foundation implemented |
 | Runtime/language configuration | Node.js + strict TypeScript configured |
-| Database configuration | MongoDB driver and startup/readiness lifecycle implemented; no MongoDB service installed in the current environment |
+| Persistence configuration | Versioned JSON file at `JSON_STORAGE_PATH`; MongoDB is deferred |
 | REST API structure | Health and auth endpoints implemented; domain APIs deferred |
 | Security/authentication foundation | JWT, password hashing, RBAC/project-access guards, rate limit and headers implemented |
 | Test infrastructure | Jest/Supertest foundation present |

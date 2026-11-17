@@ -74,13 +74,15 @@ The initial backend should run as a single service with separate internal module
 ### Local development
 - `npm install`
 - env file with startup configuration
-- MongoDB running locally or via Docker Compose
+- temporary JSON file storage configured through `JSON_STORAGE_PATH`
 
 ### Production deployment
 - containerized app
-- secret manager for provider keys and DB auth
+- secret manager for provider keys and database credentials
 - MongoDB service with backups and indexes
 - OTel-style observability if available
+
+The Phase 3 implementation currently uses a local JSON file for persistence. The MongoDB service above is the planned later production storage target, not a current runtime requirement.
 
 ## Risks and mitigations
 

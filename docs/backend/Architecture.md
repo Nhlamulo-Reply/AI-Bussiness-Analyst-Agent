@@ -2,12 +2,13 @@
 
 ## Purpose
 
-This document defines the architecture for the AI Business Analyst Agent backend in a greenfield implementation. The repository currently has no application code, so this design is a target architecture for the next implementation phase rather than a description of existing code.
+This document defines the architecture for the AI Business Analyst Agent backend. The currently implemented Phase 3 foundation uses a temporary JSON file store; MongoDB remains the planned long-term persistence layer.
 
 ## Architecture principles
 
 - Modular monolith first; boundaries are clear enough to extract later if needed.
-- HTTP route -> middleware -> controller -> service -> repository -> MongoDB.
+- HTTP route -> middleware -> controller -> service -> repository -> storage adapter.
+- The current JSON file adapter is temporary and should be replaceable by MongoDB without changing API or domain services.
 - AI workflow execution is kept separate from normal request handling.
 - All external input is validated with Zod.
 - AI output is treated as draft and subject to human approval.
@@ -20,7 +21,7 @@ The backend foundation is implemented under `backend/`. Dependency versions are 
 - Node.js: 20.19 or newer; development verified with Node.js 22.19
 - TypeScript: 5.9.3 (strict mode enabled)
 - Express.js: 5.3.0
-- MongoDB Node.js driver: 7.9.0
+- Persistence: versioned JSON file at `JSON_STORAGE_PATH` (temporary Phase 3 choice); MongoDB adapter deferred
 - Zod: 4.6.7
 - LangGraph.js and LLM provider SDKs: deferred to Phase 5, with compatibility to be verified before selection
 
@@ -38,7 +39,7 @@ Controllers
   v
 Application services
   |
-  +--> Domain services / repositories / MongoDB
+  +--> Domain services / repositories / JSON file (temporary)
   |
   +--> Workflow service
           |
@@ -75,7 +76,8 @@ The backend should be organized into these conceptual areas:
 - Business validation rules
 
 ### 4. Data access layer
-- MongoDB repositories
+- Storage adapter and repositories (currently JSON-file backed)
+- Planned MongoDB repositories
 - Query builders and pagination utilities
 - Document storage adapters
 
@@ -143,4 +145,4 @@ Each AI execution should persist:
 - Graph nodes must be explicit and typed.
 - Workflow input and output must be schema-validated.
 - The implementation must abide by the mandatory Phase approval gates in the project plan.
-- Phase 3 provides the server, MongoDB connection lifecycle, health/readiness endpoints, request IDs, structured logging, validation, error handling, JWT authentication, RBAC/project-access middleware, rate limiting, security headers, and Swagger UI. Domain APIs and LangGraph workflows remain later-phase work.
+- Phase 3 provides the server, temporary JSON storage lifecycle, health/readiness endpoints, request IDs, structured logging, validation, error handling, JWT authentication, RBAC/project-access middleware, rate limiting, security headers, and Swagger UI. MongoDB, domain APIs, and LangGraph workflows remain later-phase work.

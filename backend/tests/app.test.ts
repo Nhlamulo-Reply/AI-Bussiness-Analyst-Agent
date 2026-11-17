@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { AppConfig } from "../src/config/env";
@@ -8,8 +8,7 @@ import type { UserRecord, UserRepository } from "../src/modules/auth/user.reposi
 const config: AppConfig = {
   environment: "test",
   port: 3000,
-  mongoUri: "mongodb://127.0.0.1:27017/test",
-  mongoDatabase: "test",
+  jsonStoragePath: "./data/test.json",
   jwtSecret: "a-secure-test-secret-with-at-least-32-characters",
   jwtTtlSeconds: 900,
   logLevel: "silent"
@@ -20,14 +19,14 @@ function createHarness(overrides: Partial<AppDependencies> = {}) {
   const users: UserRepository = {
     findByEmail: async (email) => records.get(email) ?? null,
     insertUser: async (user) => {
-      const record = { ...user, _id: new ObjectId() };
+      const record = { ...user, id: randomUUID() };
       records.set(record.email, record);
       return record;
     }
   };
   const dependencies: AppDependencies = {
     config,
-    database: { ping: async () => undefined },
+    storage: { ping: async () => undefined },
     users,
     ...overrides
   };
@@ -44,18 +43,18 @@ describe("backend foundation", () => {
     expect(live.body.data.status).toBe("ok");
     expect(live.headers["x-request-id"]).toBe(live.body.requestId);
     expect(ready.status).toBe(200);
-    expect(ready.body.data.database).toBe("connected");
+    expect(ready.body.data.storage).toBe("json");
   });
 
-  it("reports readiness failure without exposing database errors", async () => {
+  it("reports readiness failure without exposing storage errors", async () => {
     const { app } = createHarness({
-      database: { ping: async () => { throw new Error("database credentials leaked"); } }
+      storage: { ping: async () => { throw new Error("private file path leaked"); } }
     });
     const response = await request(app).get("/api/v1/health/ready");
 
     expect(response.status).toBe(503);
     expect(response.body.error.code).toBe("SERVICE_UNAVAILABLE");
-    expect(JSON.stringify(response.body)).not.toContain("credentials leaked");
+    expect(JSON.stringify(response.body)).not.toContain("private file path leaked");
   });
 
   it("validates credentials and returns the standard error envelope", async () => {
@@ -96,6 +95,7 @@ describe("backend foundation", () => {
     expect(registration.status).toBe(201);
     expect(registration.body.data.user).toMatchObject({ email: "analyst@example.com", roles: ["user"] });
     expect(profile.status).toBe(200);
+    expect(profile.body.data.user.email).toBe("analyst@example.com");
     expect(profile.body.data.user.roles).toEqual(["user"]);
 
     const login = await request(app)
@@ -119,7 +119,7 @@ describe("backend foundation", () => {
       .send({ email: "person@example.com", password: "a-long-test-password" });
     const token = registration.body.data.accessToken as string;
     const inaccessible = await request(app)
-      .get(`/api/v1/projects/${new ObjectId().toString()}`)
+      .get(`/api/v1/projects/${randomUUID()}`)
       .set("Authorization", `Bearer ${token}`);
 
     expect(unauthenticated.status).toBe(401);

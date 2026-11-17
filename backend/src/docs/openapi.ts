@@ -17,10 +17,10 @@ export const openApiDocument = {
     },
     "/health/ready": {
       get: {
-        summary: "Check whether the API can reach MongoDB",
+        summary: "Check whether the configured JSON storage file is accessible",
         responses: {
-          "200": { description: "The API and database are ready" },
-          "503": { description: "The database is unavailable" }
+          "200": { description: "The API and JSON storage are ready" },
+          "503": { description: "The storage file is unavailable" }
         }
       }
     },

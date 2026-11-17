@@ -4,7 +4,7 @@ import pinoHttp from "pino-http";
 import swaggerUi from "swagger-ui-express";
 import type { Logger } from "pino";
 import type { AppConfig } from "./config/env";
-import type { Database } from "./config/database";
+import type { Storage } from "./config/storage";
 import type { UserRepository } from "./modules/auth/user.repository";
 import { createLogger } from "./config/logger";
 import { AppError } from "./common/errors/app-error";
@@ -15,7 +15,7 @@ import { openApiDocument } from "./docs/openapi";
 
 export interface AppDependencies {
   config: AppConfig;
-  database: Pick<Database, "ping">;
+  storage: Pick<Storage, "ping">;
   users: UserRepository;
   logger?: Logger;
 }
@@ -46,10 +46,10 @@ export function createApp(dependencies: AppDependencies): Express {
 
   app.get("/api/v1/health/ready", async (request: Request, response: Response, next) => {
     try {
-      await dependencies.database.ping();
+      await dependencies.storage.ping();
       response.status(200).json({
         success: true,
-        data: { status: "ready", database: "connected" },
+        data: { status: "ready", storage: "json" },
         requestId: request.id
       });
     } catch {

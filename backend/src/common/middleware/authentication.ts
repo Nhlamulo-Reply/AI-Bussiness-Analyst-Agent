@@ -5,6 +5,7 @@ import { AppError } from "../errors/app-error";
 
 const tokenClaimsSchema = z.object({
   sub: z.string().min(1),
+  email: z.email(),
   roles: z.array(z.enum(["user", "reviewer", "admin", "project_owner"]))
 });
 
@@ -22,7 +23,7 @@ export function authenticate(jwtSecret: string): RequestHandler {
       if (!claims.success) {
         throw new Error("Invalid token claims");
       }
-      request.user = { id: claims.data.sub, roles: claims.data.roles };
+      request.user = { id: claims.data.sub, email: claims.data.email, roles: claims.data.roles };
       next();
     } catch {
       next(new AppError(401, "UNAUTHORIZED", "The access token is invalid or expired."));

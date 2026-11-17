@@ -30,6 +30,7 @@ The backend must protect project data, human review processes, and AI-generated 
 - Secrets stored in environment variables or a secret manager
 - Logs contain no tokens, passwords, API keys, or sensitive document content
 - Request logs omit headers and bodies; sensitive field names are redacted.
+- The temporary JSON file contains account emails and password hashes. Keep it out of version control, restrict access to the local file, and do not use this single-process store as a production database.
 
 ### Rate limiting and HTTP security
 - rate limits for authentication endpoints (10 requests per 15 minutes per client IP)

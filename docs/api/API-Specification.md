@@ -40,10 +40,10 @@ All implemented responses include the request ID. Error responses include `succe
 ## Phase 3 foundation endpoints
 
 ### `GET /health/live`
-Returns `200` when the API process is running. It does not depend on MongoDB.
+Returns `200` when the API process is running. It does not depend on storage.
 
 ### `GET /health/ready`
-Pings MongoDB and returns `200` when the database is reachable, or `503 SERVICE_UNAVAILABLE` otherwise.
+Checks that the configured JSON storage file is initialized and accessible, returning `200` when ready or `503 SERVICE_UNAVAILABLE` otherwise. JSON file storage is temporary; MongoDB remains the later persistence target.
 
 ### `POST /auth/register`
 Creates an account with the `user` role. The request requires a valid email and a password between 12 and 128 characters. Roles with elevated permissions are not accepted from the request.

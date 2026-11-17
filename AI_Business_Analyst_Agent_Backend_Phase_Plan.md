@@ -35,7 +35,7 @@ AI-generated content is always a **draft suggestion** until an authorized human 
 | Runtime | Node.js |
 | Language | TypeScript with strict mode |
 | HTTP framework | Express.js |
-| Database | MongoDB |
+| Database | MongoDB (long-term target; temporary JSON-file storage during initial implementation) |
 | AI workflow orchestration | **LangGraph.js** |
 | LLM integration | Provider adapter supporting OpenAI and/or Claude |
 | Request/response validation | Zod |
@@ -43,6 +43,10 @@ AI-generated content is always a **draft suggestion** until an authorized human 
 | Unit and integration tests | Jest and Supertest |
 | Containerization | Docker |
 | API versioning | `/api/v1` |
+
+### Temporary storage implementation decision
+
+Effective 2026-11-17, use a local JSON file for the current backend implementation instead of connecting to MongoDB. Configure its location with `JSON_STORAGE_PATH`; keep persistence behind a replaceable storage/repository boundary. MongoDB remains the planned later storage implementation and must not be added until that phase is explicitly approved.
 
 ### LangGraph requirement — mandatory
 
@@ -73,7 +77,7 @@ Start with a **modular monolith**, not microservices. Keep boundaries clear so m
 
 Recommended request flow:
 
-`HTTP Route → Middleware → Controller → Application Service → Domain Logic / Repository → MongoDB`
+`HTTP Route → Middleware → Controller → Application Service → Domain Logic / Repository → Storage adapter`
 
 AI workflow execution should be separated from ordinary request handling:
 
@@ -272,7 +276,7 @@ Present the architecture, database design, API contracts, LangGraph design and u
 1. Initialize or adapt the Node.js/TypeScript backend.
 2. Configure TypeScript strict mode and development scripts.
 3. Implement validated environment configuration.
-4. Configure MongoDB connection lifecycle and connection failure handling.
+4. Configure the temporary JSON-file storage lifecycle and file failure handling. Keep MongoDB behind the planned storage boundary for a later approved phase.
 5. Create the Express application and server entry points.
 6. Implement request ID and structured logging middleware.
 7. Implement centralized error handling and not-found handling.
@@ -288,7 +292,7 @@ Present the architecture, database design, API contracts, LangGraph design and u
 ### Minimum verification
 
 - The server starts using documented commands.
-- MongoDB connection success and failure are handled.
+- JSON storage creation, read/write, and failure cases are handled.
 - Health/readiness endpoints return the documented responses.
 - Invalid environment variables prevent unsafe startup.
 - Validation errors use the standard error format.
