@@ -21,7 +21,7 @@ Controller
    v
 Application service
    |
-   +--> Repository / MongoDB
+   +--> Repository / storage adapter (temporary JSON file in Phase 3)
    |
    +--> Workflow service (async jobs only)
                |
@@ -78,3 +78,5 @@ Each requirement or generated artifact should carry:
 ## Data flow conclusion
 
 The data-flow design supports both ordinary CRUD operations and long-running AI analysis while preserving auditability, versioning, and human approval checkpoints.
+
+The current backend stores Phase 3 user data in the JSON file configured by `JSON_STORAGE_PATH`. MongoDB in the diagrams is the planned later persistence target.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This LLD describes the internal structure that should be implemented in the actual backend scaffolding phase. Because the repository does not yet contain application code, this is design-level guidance rather than an existing implementation reference.
+This LLD describes the layered backend design. The Phase 3 foundation now exists; project/domain layers and MongoDB repositories remain future implementation work.
 
 ## Request flow
 
@@ -14,7 +14,7 @@ HTTP request
   -> controller
   -> application service
   -> domain logic
-  -> repository / MongoDB client
+  -> repository / storage adapter (temporary JSON file in Phase 3)
   -> response serializer
 ```
 
@@ -40,7 +40,7 @@ Each service should validate domain invariants before calling repositories or wo
 
 ## Repository responsibilities
 
-Repositories isolate MongoDB access for a single aggregate or collection, for example:
+Repositories isolate storage access for a single aggregate, for example:
 
 - `ProjectRepository`
 - `DocumentRepository`
@@ -126,7 +126,7 @@ The logs must not include tokens, raw passwords, or full sensitive document cont
 
 ## Persistence design expectations
 
-MongoDB collections should support:
+The planned MongoDB collections should support:
 - project ownership linkage
 - per-artifact versions
 - approval history
@@ -134,6 +134,8 @@ MongoDB collections should support:
 - pagination-friendly indexes
 
 The implementation should use a single database namespace, with collection names reflecting where resources live.
+
+For the current Phase 3 backend, `JSON_STORAGE_PATH` points to a versioned JSON file. The MongoDB repository layout above is deferred and should replace the storage adapter in a later phase.
 
 ## LLD conclusion
 

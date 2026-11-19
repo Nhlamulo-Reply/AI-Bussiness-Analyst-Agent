@@ -1,5 +1,7 @@
 # Database Design (MongoDB)
 
+> **Interim implementation note (2026-11-17):** the current Phase 3 backend uses a local JSON file configured by `JSON_STORAGE_PATH`. This document describes the planned MongoDB target for a later phase; MongoDB is not currently connected or required to run the backend.
+
 ## Database strategy
 
 The proposed system uses MongoDB as the primary persistence layer, with document collections designed to support project ownership, nested requirement structures, reviews, workflow execution state, and version history.

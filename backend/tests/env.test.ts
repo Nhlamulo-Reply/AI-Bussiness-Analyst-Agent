@@ -2,16 +2,16 @@ import { loadConfig } from "../src/config/env";
 
 describe("loadConfig", () => {
   const validEnvironment = {
-    MONGO_URI: "mongodb://127.0.0.1:27017/test",
-    MONGO_DATABASE: "test",
     JWT_SECRET: "a-secure-test-secret-with-at-least-32-characters"
   };
 
-  it("loads defaults while requiring MongoDB and a strong JWT secret", () => {
+  it("loads defaults while requiring a JSON storage path and strong JWT secret", () => {
     expect(loadConfig(validEnvironment)).toMatchObject({
       environment: "development",
       port: 3000,
-      jwtTtlSeconds: 900
+      jsonStoragePath: "./data/ai-business-analyst.json",
+      jwtTtlSeconds: 900,
+      openAiModel: "gpt-6-luna"
     });
   });
 

@@ -5,7 +5,7 @@ export function createLogger(config: Pick<AppConfig, "environment" | "logLevel">
   return pino({
     level: config.logLevel,
     redact: {
-      paths: ["password", "passwordHash", "token", "authorization", "cookie", "*.password", "*.token"],
+      paths: ["password", "passwordHash", "token", "authorization", "cookie", "apiKey", "openAiApiKey", "OPENAI_API_KEY", "*.password", "*.token", "*.apiKey"],
       censor: "[REDACTED]"
     }
   });

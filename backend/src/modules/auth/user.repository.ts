@@ -1,15 +1,25 @@
-import type { ObjectId } from "mongodb";
+export const userRoles = ["user", "reviewer", "admin", "project_owner"] as const;
+export type UserRole = typeof userRoles[number];
 
 export interface UserRecord {
-  _id: ObjectId;
+  id: string;
   email: string;
   passwordHash: string;
-  roles: Array<"user" | "reviewer" | "admin" | "project_owner">;
-  createdAt: Date;
-  updatedAt: Date;
+  roles: UserRole[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserRepository {
   findByEmail(email: string): Promise<UserRecord | null>;
-  insertUser(user: Omit<UserRecord, "_id">): Promise<UserRecord>;
+  findById(userId: string): Promise<UserRecord | null>;
+  insertUser(user: Omit<UserRecord, "id">): Promise<UserRecord>;
+  updateUserRoles(userId: string, roles: UserRecord["roles"]): Promise<UserRecord | null>;
+}
+
+export class DuplicateUserError extends Error {
+  constructor() {
+    super("A user with this email already exists");
+    this.name = "DuplicateUserError";
+  }
 }

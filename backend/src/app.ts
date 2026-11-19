@@ -4,25 +4,41 @@ import pinoHttp from "pino-http";
 import swaggerUi from "swagger-ui-express";
 import type { Logger } from "pino";
 import type { AppConfig } from "./config/env";
-import type { Database } from "./config/database";
+import type { Storage } from "./config/storage";
 import type { UserRepository } from "./modules/auth/user.repository";
 import { createLogger } from "./config/logger";
 import { AppError } from "./common/errors/app-error";
 import { errorHandler, notFoundHandler } from "./common/middleware/error-handler";
 import { createRequestId } from "./common/middleware/request-context";
 import { createAuthRouter } from "./modules/auth/auth.routes";
+import { createProjectRouter } from "./modules/projects/project.routes";
+import { createRequirementRouter } from "./modules/requirements/requirement.routes";
+import { createWorkflowRouter } from "./modules/workflows/workflow.routes";
+import { createApprovalRouter } from "./modules/approvals/approval.routes";
+import { createUserRouter } from "./modules/users/user.routes";
+import { createArtifactRouter } from "./modules/artifacts/artifact.routes";
 import { openApiDocument } from "./docs/openapi";
+import { WorkflowService } from "./workflows/workflow-service";
+import { OpenAiStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
 
 export interface AppDependencies {
   config: AppConfig;
-  database: Pick<Database, "ping">;
+  storage: Storage;
   users: UserRepository;
   logger?: Logger;
+  workflowService?: WorkflowService;
 }
 
 export function createApp(dependencies: AppDependencies): Express {
   const app = express();
   const logger = dependencies.logger ?? createLogger(dependencies.config);
+  const workflowService = dependencies.workflowService ?? new WorkflowService(
+    dependencies.storage,
+    dependencies.config.openAiApiKey
+      ? new OpenAiStructuredOutputProvider(dependencies.config.openAiApiKey, dependencies.config.openAiModel)
+      : undefined,
+    logger
+  );
 
   app.disable("x-powered-by");
   app.use(helmet());
@@ -46,10 +62,10 @@ export function createApp(dependencies: AppDependencies): Express {
 
   app.get("/api/v1/health/ready", async (request: Request, response: Response, next) => {
     try {
-      await dependencies.database.ping();
+      await dependencies.storage.ping();
       response.status(200).json({
         success: true,
-        data: { status: "ready", database: "connected" },
+        data: { status: "ready", storage: "json" },
         requestId: request.id
       });
     } catch {
@@ -58,6 +74,16 @@ export function createApp(dependencies: AppDependencies): Express {
   });
 
   app.use("/api/v1/auth", createAuthRouter(dependencies.users, dependencies.config));
+  app.use("/api/v1/projects", createProjectRouter(dependencies.storage, dependencies.config.jwtSecret));
+  app.use("/api/v1", createRequirementRouter(dependencies.storage, dependencies.config.jwtSecret));
+  app.use("/api/v1", createWorkflowRouter(
+    dependencies.storage,
+    dependencies.config.jwtSecret,
+    workflowService
+  ));
+  app.use("/api/v1/approvals", createApprovalRouter(dependencies.storage, dependencies.config.jwtSecret));
+  app.use("/api/v1/users", createUserRouter(dependencies.storage, dependencies.config.jwtSecret));
+  app.use("/api/v1/artifacts", createArtifactRouter(dependencies.storage, dependencies.config.jwtSecret));
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.use(notFoundHandler);
   app.use(errorHandler);
