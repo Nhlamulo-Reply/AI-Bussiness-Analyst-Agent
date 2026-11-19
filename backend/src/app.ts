@@ -30,6 +30,7 @@ export interface AppDependencies {
 }
 
 export function createApp(dependencies: AppDependencies): Express {
+  //app = FastApi()
   const app = express();
   const logger = dependencies.logger ?? createLogger(dependencies.config);
   const workflowService = dependencies.workflowService ?? new WorkflowService(
@@ -50,6 +51,7 @@ export function createApp(dependencies: AppDependencies): Express {
       res: (response) => ({ statusCode: response.statusCode })
     }
   }));
+
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/v1/health/live", (request: Request, response: Response) => {
