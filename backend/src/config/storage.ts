@@ -74,6 +74,20 @@ export class ApprovalTransitionError extends Error {
   }
 }
 
+export class ApprovalSubmissionError extends Error {
+  constructor() {
+    super("Record is not a draft or already has a pending approval");
+    this.name = "ApprovalSubmissionError";
+  }
+}
+
+export class ArtifactReviewConflictError extends Error {
+  constructor() {
+    super("Artifact cannot be edited while an approval is pending");
+    this.name = "ArtifactReviewConflictError";
+  }
+}
+
 export interface Storage extends ProjectRepository {
   connect(): Promise<void>;
   ping(): Promise<void>;
@@ -88,6 +102,7 @@ export interface Storage extends ProjectRepository {
   getDocument(documentId: string): Promise<DocumentRecord | null>;
   listDocuments(projectId: string): Promise<DocumentRecord[]>;
   createRequirement(requirement: RequirementRecord): Promise<RequirementRecord>;
+  createRequirements(requirements: RequirementRecord[]): Promise<RequirementRecord[]>;
   getRequirement(requirementId: string): Promise<RequirementRecord | null>;
   listRequirements(projectId: string, page: number, limit: number): Promise<Page<RequirementRecord>>;
   reviseRequirement(
@@ -96,7 +111,14 @@ export interface Storage extends ProjectRepository {
     patch: Partial<Pick<RequirementRecord, "title" | "description" | "type" | "priority" | "sourceFacts" | "assumptions" | "openQuestions">>
   ): Promise<RequirementRecord | null>;
   getArtifact(artifactType: ApprovalArtifactType, artifactId: string): Promise<RequirementRecord | ArtifactRecord | null>;
+  getArtifactById(artifactId: string): Promise<ArtifactRecord | null>;
   createArtifact(artifact: ArtifactRecord): Promise<ArtifactRecord>;
+  createArtifacts(artifacts: ArtifactRecord[]): Promise<ArtifactRecord[]>;
+  reviseArtifact(
+    artifactId: string,
+    actorUserId: string,
+    patch: Partial<Pick<ArtifactRecord, "title" | "description" | "requirementIds" | "data">>
+  ): Promise<ArtifactRecord | null>;
   listArtifacts(projectId: string, page: number, limit: number): Promise<Page<ArtifactRecord>>;
   createApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   getApproval(approvalId: string): Promise<ApprovalRecord | null>;
@@ -109,6 +131,10 @@ export interface Storage extends ProjectRepository {
   listVersions(artifactType: ApprovalArtifactType, artifactId: string): Promise<VersionRecord[]>;
   createExecution(execution: ExecutionRecord): Promise<ExecutionRecord>;
   getExecution(executionId: string): Promise<ExecutionRecord | null>;
+  updateExecution(
+    executionId: string,
+    patch: Partial<Pick<ExecutionRecord, "status" | "nodeStates" | "result" | "error" | "model" | "usage" | "startedAt" | "completedAt" | "durationMs">>
+  ): Promise<ExecutionRecord | null>;
   getProjectExport(projectId: string): Promise<{
     project: ProjectRecord;
     documents: Array<Omit<DocumentRecord, "contentBase64">>;
@@ -257,6 +283,20 @@ export class JsonFileStorage implements Storage, UserRepository, ProjectReposito
     return this.insertRecord("requirements", requirement);
   }
 
+  createRequirements(requirements: RequirementRecord[]): Promise<RequirementRecord[]> {
+    return this.update((state) => {
+      const existingIds = new Set(state.requirements.map((requirement) => requirement.id));
+      for (const requirement of requirements) {
+        if (existingIds.has(requirement.id)) {
+          throw new Error(`Duplicate record ID: ${requirement.id}`);
+        }
+        existingIds.add(requirement.id);
+      }
+      state.requirements.push(...requirements);
+      return requirements;
+    });
+  }
+
   async getRequirement(requirementId: string): Promise<RequirementRecord | null> {
     return this.findRecord("requirements", requirementId);
   }
@@ -304,6 +344,10 @@ export class JsonFileStorage implements Storage, UserRepository, ProjectReposito
     return artifact?.type === artifactType ? artifact : null;
   }
 
+  async getArtifactById(artifactId: string): Promise<ArtifactRecord | null> {
+    return this.findRecord<ArtifactRecord, "artifacts">("artifacts", artifactId);
+  }
+
   async listArtifacts(projectId: string, page: number, limit: number): Promise<Page<ArtifactRecord>> {
     return makePage(this.getState().artifacts.filter((artifact) => artifact.projectId === projectId), page, limit);
   }
@@ -312,8 +356,76 @@ export class JsonFileStorage implements Storage, UserRepository, ProjectReposito
     return this.insertRecord("artifacts", artifact);
   }
 
+  createArtifacts(artifacts: ArtifactRecord[]): Promise<ArtifactRecord[]> {
+    return this.update((state) => {
+      const existingIds = new Set(state.artifacts.map((artifact) => artifact.id));
+      for (const artifact of artifacts) {
+        if (existingIds.has(artifact.id)) {
+          throw new Error(`Duplicate record ID: ${artifact.id}`);
+        }
+        existingIds.add(artifact.id);
+      }
+      state.artifacts.push(...artifacts);
+      return artifacts;
+    });
+  }
+
+  reviseArtifact(
+    artifactId: string,
+    actorUserId: string,
+    patch: Partial<Pick<ArtifactRecord, "title" | "description" | "requirementIds" | "data">>
+  ): Promise<ArtifactRecord | null> {
+    return this.update((state) => {
+      const artifact = state.artifacts.find((record) => record.id === artifactId);
+      if (!artifact) {
+        return null;
+      }
+      if (state.approvals.some((approval) =>
+        approval.artifactType === artifact.type
+        && approval.artifactId === artifact.id
+        && approval.decision === "pending"
+      )) {
+        throw new ArtifactReviewConflictError();
+      }
+
+      state.versions.push({
+        id: randomUUID(),
+        projectId: artifact.projectId,
+        artifactType: artifact.type,
+        artifactId: artifact.id,
+        version: artifact.version,
+        snapshot: structuredClone(artifact),
+        actorUserId,
+        reason: "Artifact edited",
+        createdAt: new Date().toISOString()
+      });
+      Object.assign(artifact, patch);
+      artifact.version += 1;
+      artifact.status = "draft";
+      artifact.updatedAt = new Date().toISOString();
+      return artifact;
+    });
+  }
+
   async createApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
-    return this.insertRecord("approvals", approval);
+    return this.update((state) => {
+      if (state.approvals.some((record) => record.id === approval.id)) {
+        throw new Error(`Duplicate record ID: ${approval.id}`);
+      }
+      const artifact = approval.artifactType === "requirement"
+        ? state.requirements.find((record) => record.id === approval.artifactId)
+        : state.artifacts.find((record) => record.id === approval.artifactId && record.type === approval.artifactType);
+      const pendingApprovalExists = state.approvals.some((record) =>
+        record.artifactType === approval.artifactType
+        && record.artifactId === approval.artifactId
+        && record.decision === "pending"
+      );
+      if (!artifact || artifact.status !== "draft" || pendingApprovalExists) {
+        throw new ApprovalSubmissionError();
+      }
+      state.approvals.push(approval);
+      return approval;
+    });
   }
 
   async getApproval(approvalId: string): Promise<ApprovalRecord | null> {
@@ -340,6 +452,9 @@ export class JsonFileStorage implements Storage, UserRepository, ProjectReposito
         : state.artifacts.find((record) => record.id === approval.artifactId && record.type === approval.artifactType);
       if (!currentArtifact) {
         return null;
+      }
+      if (currentArtifact.status !== "draft") {
+        throw new ApprovalTransitionError();
       }
 
       state.versions.push({
@@ -376,6 +491,21 @@ export class JsonFileStorage implements Storage, UserRepository, ProjectReposito
 
   async getExecution(executionId: string): Promise<ExecutionRecord | null> {
     return this.findRecord("executions", executionId);
+  }
+
+  updateExecution(
+    executionId: string,
+    patch: Partial<Pick<ExecutionRecord, "status" | "nodeStates" | "result" | "error" | "model" | "usage" | "startedAt" | "completedAt" | "durationMs">>
+  ): Promise<ExecutionRecord | null> {
+    return this.update((state) => {
+      const execution = state.executions.find((record) => record.id === executionId);
+      if (!execution) {
+        return null;
+      }
+      Object.assign(execution, patch);
+      execution.updatedAt = new Date().toISOString();
+      return execution;
+    });
   }
 
   async getProjectExport(projectId: string): Promise<{

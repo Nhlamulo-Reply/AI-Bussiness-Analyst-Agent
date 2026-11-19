@@ -6,6 +6,7 @@ import request from "supertest";
 import { createApp } from "../src/app";
 import type { AppConfig } from "../src/config/env";
 import { JsonFileStorage } from "../src/config/storage";
+import { openApiDocument } from "../src/docs/openapi";
 
 const config: AppConfig = {
   environment: "test",
@@ -13,7 +14,8 @@ const config: AppConfig = {
   jsonStoragePath: "./data/test.json",
   jwtSecret: "a-secure-test-secret-with-at-least-32-characters",
   jwtTtlSeconds: 900,
-  logLevel: "silent"
+  logLevel: "silent",
+  openAiModel: "gpt-6-luna"
 };
 
 let app: ReturnType<typeof createApp>;
@@ -194,6 +196,7 @@ describe("backend foundation", () => {
     const adminLogin = await login("initial-admin@example.com");
     const owner = await registerUser("approver-owner@example.com");
     const reviewer = await registerUser("reviewer@example.com");
+    const regularMember = await registerUser("regular-member@example.com");
 
     const roleUpdate = await request(app)
       .patch(`/api/v1/users/${reviewer.id}/roles`)
@@ -209,7 +212,7 @@ describe("backend foundation", () => {
     const members = await request(app)
       .patch(`/api/v1/projects/${project.id}/members`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .send({ memberIds: [reviewer.id] });
+      .send({ memberIds: [reviewer.id, regularMember.id] });
     const requirement = await request(app)
       .post(`/api/v1/projects/${project.id}/requirements`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -218,6 +221,19 @@ describe("backend foundation", () => {
       .post(`/api/v1/projects/${project.id}/artifacts`)
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ type: "story", title: "User story", requirementIds: [requirement.body.data.id] });
+    const artifactEdit = await request(app)
+      .patch(`/api/v1/artifacts/${artifact.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Revised user story", data: { acceptanceNote: "reviewed" } });
+    const otherProject = await createProject(owner.token);
+    const foreignRequirement = await request(app)
+      .post(`/api/v1/projects/${otherProject.id}/requirements`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Foreign requirement", type: "business" });
+    const invalidArtifactEdit = await request(app)
+      .patch(`/api/v1/artifacts/${artifact.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ requirementIds: [foreignRequirement.body.data.id] });
     const edit = await request(app)
       .patch(`/api/v1/requirements/${requirement.body.data.id}`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -237,6 +253,10 @@ describe("backend foundation", () => {
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${ownerReviewerLogin}`)
       .send({ decision: "approved" });
+    const unauthorizedReview = await request(app)
+      .patch(`/api/v1/approvals/${approval.body.data.id}`)
+      .set("Authorization", `Bearer ${regularMember.token}`)
+      .send({ decision: "approved" });
     const decision = await request(app)
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
@@ -249,6 +269,14 @@ describe("backend foundation", () => {
       .post("/api/v1/approvals")
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ projectId: project.id, artifactType: "story", artifactId: artifact.body.data.id });
+    const duplicateArtifactApproval = await request(app)
+      .post("/api/v1/approvals")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ projectId: project.id, artifactType: "story", artifactId: artifact.body.data.id });
+    const editWhilePending = await request(app)
+      .patch(`/api/v1/artifacts/${artifact.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Changed after submission" });
     const artifactDecision = await request(app)
       .patch(`/api/v1/approvals/${artifactApproval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
@@ -262,33 +290,125 @@ describe("backend foundation", () => {
     const artifactVersions = await request(app)
       .get(`/api/v1/artifacts/${artifact.body.data.id}/versions?type=story`)
       .set("Authorization", `Bearer ${owner.token}`);
+    const projectExport = await request(app)
+      .get(`/api/v1/projects/${project.id}/export?format=json`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const markdownExport = await request(app)
+      .get(`/api/v1/projects/${project.id}/export?format=markdown`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const csvProjectExport = await request(app)
+      .get(`/api/v1/projects/${project.id}/export?format=csv`)
+      .set("Authorization", `Bearer ${owner.token}`);
 
     expect(roleUpdate.status).toBe(200);
     expect(members.body.data.members).toContain(reviewer.id);
+    expect(members.body.data.members).toContain(regularMember.id);
     expect(artifact.status).toBe(201);
+    expect(artifactEdit.status).toBe(200);
+    expect(artifactEdit.body.data).toMatchObject({ title: "Revised user story", status: "draft", version: 2 });
+    expect(invalidArtifactEdit.status).toBe(400);
     expect(edit.body.data.version).toBe(2);
     expect(versions.body.data).toHaveLength(1);
     expect(ownReview.status).toBe(403);
+    expect(unauthorizedReview.status).toBe(403);
     expect(decision.status).toBe(200);
     expect(decision.body.data.decision).toBe("approved");
+    expect(decision.body.data).toMatchObject({
+      reviewerUserId: reviewer.id,
+      comments: "Reviewed.",
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String)
+    });
     expect(duplicateDecision.status).toBe(409);
     expect(artifactDecision.status).toBe(200);
+    expect(duplicateArtifactApproval.status).toBe(409);
+    expect(editWhilePending.status).toBe(409);
     expect(updatedRequirements.body.data.items[0]).toMatchObject({ status: "approved", version: 3 });
-    expect(updatedArtifacts.body.data.items[0]).toMatchObject({ status: "draft", version: 2 });
-    expect(artifactVersions.body.data).toHaveLength(1);
+    expect(updatedArtifacts.body.data.items[0]).toMatchObject({ status: "draft", version: 3 });
+    expect(artifactVersions.body.data).toHaveLength(2);
+    expect(artifactVersions.body.data[0]).toMatchObject({
+      version: 1,
+      actorUserId: owner.id,
+      reason: "Artifact edited",
+      snapshot: { title: "User story", version: 1 }
+    });
+    expect(artifactVersions.body.data[1]).toMatchObject({
+      version: 2,
+      actorUserId: reviewer.id,
+      reason: "Approval decision: changes_requested",
+      snapshot: { title: "Revised user story", version: 2 }
+    });
+    expect(projectExport.body.artifacts[0]).toMatchObject({ status: "draft" });
+    expect(projectExport.body.requirements[0]).toMatchObject({ status: "approved" });
+    expect(markdownExport.text).toContain("| story | Revised user story | draft |");
+    expect(markdownExport.text).toContain("| requirement | Business requirement | approved |");
+    expect(csvProjectExport.text).toContain('"story","' + artifact.body.data.id + '","Revised user story","draft"');
+    expect(csvProjectExport.text).toContain('"requirement","' + requirement.body.data.id + '","Business requirement","approved"');
   });
 
-  it("returns explicit not-implemented responses for Phase 5 workflows", async () => {
+  it("requires authentication and reports an unconfigured AI provider for workflow submissions", async () => {
     const user = await registerUser("workflow@example.com");
     const project = await createProject(user.token);
+    const unauthenticated = await request(app)
+      .post("/api/v1/requirements/analyze")
+      .send({ projectId: project.id });
     const response = await request(app)
       .post("/api/v1/requirements/analyze")
       .set("Authorization", `Bearer ${user.token}`)
       .send({ projectId: project.id });
 
-    expect(response.status).toBe(501);
-    expect(response.body.error.code).toBe("NOT_IMPLEMENTED");
-    expect(response.body.error.message).toContain("no results were generated");
+    expect(unauthenticated.status).toBe(401);
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("AI_PROVIDER_NOT_CONFIGURED");
+  });
+
+  it("limits workflow submissions per client IP", async () => {
+    const user = await registerUser("workflow-rate-limit@example.com");
+    const project = await createProject(user.token);
+    const statuses: number[] = [];
+
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const response = await request(app)
+        .post("/api/v1/requirements/analyze")
+        .set("Authorization", `Bearer ${user.token}`)
+        .send({ projectId: project.id });
+      statuses.push(response.status);
+    }
+
+    expect(statuses.slice(0, 10).every((status) => status === 503)).toBe(true);
+    expect(statuses[10]).toBe(429);
+  });
+
+  it("documents runtime success responses for representative API routes in OpenAPI", async () => {
+    const live = await request(app).get("/api/v1/health/live");
+    const registration = await request(app)
+      .post("/api/v1/auth/register")
+      .send({ email: "openapi@example.com", password: "a-long-test-password" });
+    const token = registration.body.data.accessToken as string;
+    const project = await request(app)
+      .post("/api/v1/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "OpenAPI contract project" });
+    const projectId = project.body.data.id as string;
+    const artifact = await request(app)
+      .post(`/api/v1/projects/${projectId}/artifacts`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ type: "story", title: "Contract story" });
+    const artifactId = artifact.body.data.id as string;
+    const artifactEdit = await request(app)
+      .patch(`/api/v1/artifacts/${artifactId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ description: "Updated from the API contract test." });
+    const projectExport = await request(app)
+      .get(`/api/v1/projects/${projectId}/export?format=json`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(openApiDocument.paths["/health/live"].get.responses).toHaveProperty(String(live.status));
+    expect(openApiDocument.paths["/auth/register"].post.responses).toHaveProperty(String(registration.status));
+    expect(openApiDocument.paths["/projects"].post.responses).toHaveProperty(String(project.status));
+    expect(openApiDocument.paths["/projects/{id}/artifacts"].post.responses).toHaveProperty(String(artifact.status));
+    expect(openApiDocument.paths["/artifacts/{id}"].patch.responses).toHaveProperty(String(artifactEdit.status));
+    expect(openApiDocument.paths["/projects/{id}/export"].get.responses).toHaveProperty(String(projectExport.status));
   });
 });
 

@@ -20,19 +20,20 @@ The backend must protect project data, human review processes, and AI-generated 
 - All inputs validated using Zod before controller/service logic executes
 - Uploads are limited to PDF, DOCX, and UTF-8 text with a 5 MiB file limit, MIME/extension matching, and basic signature/content checks.
 - File bytes are stored base64-encoded in the temporary JSON file and are omitted from metadata responses and exports.
-- No document parser or AI analysis is implemented yet; document contents must be treated as untrusted if Phase 5 parsing is introduced.
+- PDF, DOCX, and text contents are extracted for workflows and must remain untrusted input.
 
 ### Prompt injection defense
-- System prompts are kept separate from user or document text
-- Document content is not allowed to override workflow rules
-- Output is validated against schema and business constraints before persistence
-- Source facts, assumptions, and uncertainties are persisted separately so that generated recommendations cannot be mistaken for facts
+- Versioned system/task prompts are kept separate from user and document text and explicitly reject embedded instructions.
+- Document contents and selected project data are sent to OpenAI when workflow requests execute; the Responses API call disables response storage. Callers must not submit data they are not authorized to share.
+- Model output is schema-validated and cross-checked against project-scoped IDs and verbatim source excerpts before persistence.
+- Generated results remain drafts. Source facts, assumptions, open questions, recommendations, and uncertainties are represented separately.
 
 ### Logging and secret handling
 - Request IDs and execution IDs for traceability
 - Secrets stored in environment variables or a secret manager
 - Logs contain no tokens, passwords, API keys, or sensitive document content
 - Request logs omit headers and bodies; sensitive field names are redacted.
+- OpenAI API keys are optional environment configuration, are not logged, and must not be committed.
 - The temporary JSON file contains account emails and password hashes. Keep it out of version control, restrict access to the local file, and do not use this single-process store as a production database.
 
 ### Rate limiting and HTTP security
@@ -41,7 +42,7 @@ The backend must protect project data, human review processes, and AI-generated 
 - bearer tokens are not stored in cookies
 - TLS-only deployment in production
 
-### Phase 3–4 implementation decisions
+### Phase 3–5 implementation decisions
 - Passwords are hashed with bcryptjs (cost factor 12) and are never returned by API responses.
 - Access tokens expire after 900 seconds by default; the lifetime is environment-configurable within a bounded range.
 - The JWT secret is required at startup and must be at least 32 characters.

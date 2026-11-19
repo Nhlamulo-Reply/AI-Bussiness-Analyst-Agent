@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import type { Storage } from "../../config/storage";
-import { ApprovalTransitionError } from "../../config/storage";
+import { ApprovalSubmissionError, ApprovalTransitionError, type Storage } from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
 import { authenticate, requireRoles } from "../../common/middleware/authentication";
 import { getAuthenticatedUser, getRouteParam } from "../../common/middleware/current-user";
@@ -34,7 +33,9 @@ export function createApprovalRouter(storage: Storage, jwtSecret: string): Route
       });
       response.status(201).json({ success: true, data: approval, requestId: request.id });
     } catch (error) {
-      next(error);
+      next(error instanceof ApprovalSubmissionError
+        ? new AppError(409, "CONFLICT", "Only draft artifacts without a pending approval can be submitted for review.")
+        : error);
     }
   });
 

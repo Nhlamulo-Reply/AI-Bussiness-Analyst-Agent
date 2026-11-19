@@ -69,20 +69,21 @@ Responsibilities:
 
 ## Deployment model
 
-The initial backend should run as a single service with separate internal modules. In a containerized environment, it would be deployed as a Node.js service behind a reverse proxy or load balancer.
+The backend runs as a single service with separate internal modules. `backend/Dockerfile` provides a multi-stage Node.js 22 image intended to run behind a reverse proxy or load balancer. The image runs as a non-root user and expects the JSON storage volume at `/data`.
 
 ### Local development
 - `npm install`
-- env file with startup configuration
+- `.env` file with local startup configuration (never copy it into a container image)
 - temporary JSON file storage configured through `JSON_STORAGE_PATH`
 
 ### Production deployment
-- containerized app
-- secret manager for provider keys and database credentials
-- MongoDB service with backups and indexes
-- OTel-style observability if available
+- containerized app with a persistent `/data` volume and exactly one replica while JSON storage is used
+- secret manager for `JWT_SECRET` and optional `OPENAI_API_KEY`
+- TLS termination at a trusted ingress, with readiness `/api/v1/health/ready` and liveness `/api/v1/health/live`
+- structured logs collected from stdout/stderr; do not log document bodies or credentials
+- encrypted, access-controlled JSON-volume backups and restoration drills
 
-The Phase 3 implementation currently uses a local JSON file for persistence. The MongoDB service above is the planned later production storage target, not a current runtime requirement.
+The current JSON adapter is temporary, single-process storage and does not provide multi-replica coordination or point-in-time recovery. MongoDB is not a current runtime requirement. Before a production migration, implement and approve its adapter, apply the indexes described in `Database-Design.md`, enable encrypted automated backups and point-in-time recovery where supported, and test restores. Cloud-provider-specific deployment steps are intentionally left for the hosting-target decision.
 
 ## Risks and mitigations
 
