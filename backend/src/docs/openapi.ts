@@ -16,7 +16,7 @@ const workflowSubmission = (summary: string) => ({
       "401": { description: "Authentication required" },
       "404": { description: "Project is not accessible" },
       "429": { description: "Workflow submission limit exceeded" },
-      "503": { description: "OpenAI provider is not configured" }
+      "503": { description: "Selected LLM provider is not configured" }
     }
   }
 });
