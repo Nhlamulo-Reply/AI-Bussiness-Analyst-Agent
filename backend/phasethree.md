@@ -1,6 +1,6 @@
-# Phase 3–4 Backend Walkthrough
+# Phase 3–5 Backend Walkthrough
 
-This walkthrough follows the backend from process startup through its current Phase 3 foundation and Phase 4 project/domain APIs. Persistence currently uses a temporary JSON file; MongoDB is deferred. AI workflow endpoints remain explicit Phase 5 placeholders.
+This walkthrough follows the backend from process startup through the Phase 3 foundation, Phase 4 project/domain APIs, and Phase 5 LangGraph workflows. Persistence still uses a temporary single-process JSON file; MongoDB and durable job recovery are deferred.
 
 ## 1. Start here
 
@@ -34,7 +34,7 @@ flowchart TD
     APP --> HTTP["Create Node HTTP server<br/>listen on configured PORT"]
     HTTP --> RUNNING["API accepting requests"]
     RUNNING --> SIGNAL["SIGINT / SIGTERM"]
-    SIGNAL --> CLOSE["Stop HTTP server<br/>wait for queued JSON writes"]
+    SIGNAL --> CLOSE["Stop HTTP server<br/>wait for active workflows and JSON writes"]
 ```
 
 ### Startup details
@@ -82,7 +82,9 @@ flowchart TD
     APPROVALS --> PROJECTDATA
     ROUTE -->|roles| USERS["modules/users/user.routes.ts"]
     USERS --> PROJECTDATA
-    ROUTE -->|AI workflow request| PLACEHOLDERS["modules/workflows/workflow-placeholder.routes.ts<br/>501; no generated results"]
+    ROUTE -->|AI workflow request| WORKFLOWROUTE["modules/workflows/workflow.routes.ts<br/>auth, project access, rate limit"]
+    WORKFLOWROUTE --> WORKFLOWSERVICE["workflows/workflow-service.ts<br/>prepare input and queue execution"]
+    WORKFLOWSERVICE --> EXECUTION["config/storage.ts<br/>queued execution record"]
     ROUTE -->|export| EXPORT["modules/exports/project-exporter.ts<br/>JSON / Markdown / CSV"]
 
     ROUTE -->|GET /api-docs| SWAGGER["src/docs/openapi.ts<br/>Swagger UI"]
@@ -97,7 +99,7 @@ flowchart TD
     AUTHRESPONSE --> CLIENT
     ME --> CLIENT
     PROJECTDATA --> CLIENT
-    PLACEHOLDERS --> CLIENT
+    EXECUTION --> CLIENT
     EXPORT --> CLIENT
     SWAGGER --> CLIENT
 ```
@@ -126,24 +128,50 @@ The normal API response shape is `{ success, data, requestId }`. Errors use `{ s
 | `GET /api/v1/artifacts/:id/versions?type=...` | Lists artifact version snapshots. | Requires a valid artifact type and project access. |
 | `POST /api/v1/projects/:id/artifacts` | Creates a draft artifact. | Supports epic, story, acceptance criteria, business rule, risk, dependency, and implementation plan types. |
 | `GET /api/v1/projects/:id/artifacts?page=&limit=` | Lists project artifacts. | Paginated. |
+| `PATCH /api/v1/artifacts/:id` | Revises a generated artifact. | Saves the prior snapshot, increments the version, resets status to draft, and rejects edits while approval is pending. |
 | `POST /api/v1/approvals` | Submits an artifact for review. | Artifact must belong to the declared project. |
 | `PATCH /api/v1/approvals/:id` | Records a review decision. | Reviewer/admin only; self-review is rejected; decided approvals cannot be changed. |
 | `PATCH /api/v1/users/:id/roles` | Assigns user roles. | Admin-only. Initial admin provisioning is out-of-band; changed roles take effect for newly issued tokens. |
 | `GET /api/v1/projects/:id/export?format=json\|markdown\|csv` | Exports project data. | Document file bytes are excluded. |
-| `POST /api/v1/requirements/analyze` (and other generation routes) | Phase 5 placeholder. | Returns explicit `501 NOT_IMPLEMENTED`; does not fabricate or persist results. |
+| `POST /api/v1/requirements/analyze`, `/requirements/extract`, `/stories/generate`, `/acceptance-criteria/generate`, `/requirements/validate`, `/risks/analyze`, `/roadmap/generate` | Queues a Phase 5 workflow. | Returns `202` with an execution record; requires `OPENAI_API_KEY`; missing key returns `503`. |
 | `GET /api/v1/executions/:id` | Reads an execution record. | Returns `404` if no record exists or project access is denied. |
-| `GET /api-docs` | Serves the Swagger UI. | Documents the implemented Phase 3/4 endpoints and Phase 5 placeholders. |
+| `GET /api-docs` | Serves the Swagger UI. | Documents the implemented Phase 3–5 endpoints. |
 
 The current endpoint contracts are also summarized in [`../docs/api/API-Specification.md`](../docs/api/API-Specification.md).
 
-## 5. File map: where to read next
+## 5. Phase 5 workflow execution
+
+```mermaid
+flowchart TD
+    CLIENT["POST /api/v1/requirements/extract<br/>Bearer token + projectId"] --> ROUTE["workflow.routes.ts<br/>Zod body validation, project access, 10/15m limiter"]
+    ROUTE --> SERVICE["workflow-service.ts<br/>resolve project inputs, parse documents, enforce limits"]
+    SERVICE --> QUEUED["JSON execution: queued<br/>HTTP returns 202 + execution ID"]
+    QUEUED --> INTAKE["LangGraph: intake"]
+    INTAKE --> EXTRACT["extractRequirements node"]
+    EXTRACT --> GAPS["detectGaps node"]
+    GAPS --> CLARIFY{"Questions or conflicts?"}
+    CLARIFY -->|Yes| CLARIFICATION["clarification node<br/>surface questions in result"]
+    CLARIFY -->|No| CRITIC["critic node"]
+    CLARIFICATION --> CRITIC
+    CRITIC --> VALIDATE["validateOutput node<br/>Zod schemas, project IDs, source citations"]
+    VALIDATE --> PERSIST["persist node<br/>save draft requirements and artifacts"]
+    PERSIST --> DONE["execution: completed<br/>GET /api/v1/executions/:id"]
+    PROVIDER["structured-output-provider.ts<br/>OpenAI Responses API"] --> EXTRACT
+    EXTRACTOR["text-extractor.ts<br/>PDF / DOCX / UTF-8 text"] --> EXTRACT
+    STORE["config/storage.ts<br/>temporary JSON adapter"] --> SERVICE
+    STORE --> PERSIST
+```
+
+The analysis route also identifies stakeholders before extraction. Story generation, acceptance criteria, validation, risk analysis, and roadmap requests use their own graph task node and share output validation/persistence. Prompts are versioned in `src/workflows/prompts.ts`; source content is untrusted and is sent to OpenAI only when a configured workflow is invoked. OpenAI response storage is disabled. The in-process jobs are not crash-resumable; graceful shutdown waits for active jobs.
+
+## 6. File map: where to read next
 
 ### Process and application composition
 
 | File | Main responsibility |
 |---|---|
 | [`src/server.ts`](src/server.ts) | Actual process entry point. Loads config, initializes JSON storage, creates the app, listens on the port, and handles shutdown signals. |
-| [`src/app.ts`](src/app.ts) | Creates the Express app and mounts health, auth, project, requirement, workflow-placeholder, approval, user-role, and Swagger routes with shared middleware and errors. |
+| [`src/app.ts`](src/app.ts) | Creates the Express app and mounts health, auth, project, requirement, workflow, approval, user-role, and Swagger routes with shared middleware and errors. |
 | [`package.json`](package.json) | Dependencies and the `dev`, `build`, `start`, `typecheck`, and `test` commands. |
 | [`tsconfig.json`](tsconfig.json) | Strict TypeScript compiler settings and source/test inclusion. |
 | [`README.md`](README.md) | Environment setup, run commands, and a short endpoint list. |
@@ -181,11 +209,17 @@ The current endpoint contracts are also summarized in [`../docs/api/API-Specific
 | [`src/modules/requirements/requirement.routes.ts`](src/modules/requirements/requirement.routes.ts) | Draft requirement creation/list/edit and version-history routes. |
 | [`src/modules/approvals/approval.routes.ts`](src/modules/approvals/approval.routes.ts) | Approval submission and reviewer decision/state transitions. |
 | [`src/modules/users/user.routes.ts`](src/modules/users/user.routes.ts) | Admin-only role assignment. |
-| [`src/modules/workflows/workflow-placeholder.routes.ts`](src/modules/workflows/workflow-placeholder.routes.ts) | Execution lookup and explicit Phase 5 `501` workflow routes. |
+| [`src/modules/workflows/workflow.routes.ts`](src/modules/workflows/workflow.routes.ts) | Authenticated, rate-limited workflow submission and project-scoped execution lookup. |
+| [`src/workflows/workflow-service.ts`](src/workflows/workflow-service.ts) | Validates project inputs, parses selected documents, persists queued jobs, tracks nodes, and drains on shutdown. |
+| [`src/workflows/workflow-graph.ts`](src/workflows/workflow-graph.ts) | Typed LangGraph nodes for extraction, gap/clarification routing, critic, generation, schema validation, and draft persistence. |
+| [`src/workflows/prompts.ts`](src/workflows/prompts.ts) | Versioned task prompts and untrusted-content instructions. |
+| [`src/workflows/workflow.schemas.ts`](src/workflows/workflow.schemas.ts) | Zod schemas for structured model outputs and workflow results. |
+| [`src/integrations/llm/structured-output-provider.ts`](src/integrations/llm/structured-output-provider.ts) | OpenAI Responses structured-output adapter with timeout, bounded retry, and response storage disabled. |
+| [`src/integrations/documents/text-extractor.ts`](src/integrations/documents/text-extractor.ts) | Extracts text from PDF, DOCX, and UTF-8 text documents. |
 | [`src/modules/exports/project-exporter.ts`](src/modules/exports/project-exporter.ts) | Renders JSON, Markdown, and CSV exports; escapes Markdown and CSV values. |
 | [`src/docs/openapi.ts`](src/docs/openapi.ts) | OpenAPI 3.1 document served by Swagger UI. |
 
-## 6. Environment values
+## 7. Environment values
 
 | Name | Required/default | Purpose |
 |---|---|---|
@@ -195,8 +229,10 @@ The current endpoint contracts are also summarized in [`../docs/api/API-Specific
 | `JWT_SECRET` | Required, minimum 32 characters | Signs and verifies access tokens. |
 | `JWT_TTL_SECONDS` | Defaults to `900`; allowed `60–86400` | Access-token lifetime. |
 | `LOG_LEVEL` | Defaults to `info` | Pino log level. |
+| `OPENAI_API_KEY` | Optional | Enables live workflow calls; never commit the real key. |
+| `OPENAI_MODEL` | Defaults to `gpt-6-luna` | OpenAI model for structured workflow output. |
 
-## 7. Authentication and project access in plain language
+## 8. Authentication and project access in plain language
 
 - Registration stores a bcryptjs password hash (cost factor 12), not the raw password.
 - New accounts receive only the `user` role. Elevated roles are not self-assigned through registration.
@@ -204,9 +240,9 @@ The current endpoint contracts are also summarized in [`../docs/api/API-Specific
 - `authenticate()` verifies the token before setting `request.user`.
 - `requireRoles()` can guard routes that require a specific role.
 - `requireProjectAccess()` asks the JSON-backed project repository whether the authenticated user is the project owner or a member.
-- The project-access guard is implemented for future project routes, but **there are no project CRUD routes yet**.
+- Project routes and workflow routes enforce project owner/member access.
 
-## 8. Tests and current boundary
+## 9. Tests and current boundary
 
 Tests live under [`tests/`](tests/). They exercise environment validation, JSON persistence/reload, write serialization, health/readiness responses, request validation, registration/login/token behavior, role checks, and project-access middleware. Storage tests use isolated temporary files.
 
@@ -217,7 +253,7 @@ npm run typecheck
 npm test
 ```
 
-### Implemented in Phases 3 and 4
+### Implemented in Phases 3–5
 
 - Express/TypeScript foundation and configuration
 - Versioned JSON storage initialization/migration, validation, atomic writes, and readiness check
@@ -226,12 +262,12 @@ npm test
 - Project/document/requirement/artifact/approval/version/execution records and APIs
 - Role assignment, project membership, paginated reads, exports, and upload validation
 - Rate limiting, Helmet security headers, health routes, Swagger UI, and API tests
+- Async LangGraph jobs, OpenAI adapter, document text extraction, structured output validation, source citation checks, and node-level execution status
 
-### Not implemented yet
+### Deferred
 
-- AI extraction, generation, analysis, asynchronous workflow processing, or document parsing (Phase 5)
+- Durable queue, cross-process execution, crash recovery, and resumable graph checkpoints
 - MongoDB adapter and migration (deferred; JSON remains temporary until approved)
-- LangGraph workflows or LLM-provider integrations (Phase 5)
 - Docker setup (Phase 8)
 
-The next step after reviewing Phase 4 is to wait for explicit approval before starting Phase 5.
+Phase 5 is complete at the current scope. Stop here and request explicit approval before starting Phase 6.

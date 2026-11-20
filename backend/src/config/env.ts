@@ -6,7 +6,9 @@ const environmentSchema = z.object({
   JSON_STORAGE_PATH: z.string().trim().min(1).default("./data/ai-business-analyst.json"),
   JWT_SECRET: z.string().min(32, "Must contain at least 32 characters"),
   JWT_TTL_SECONDS: z.coerce.number().int().min(60).max(86400).default(900),
-  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  OPENAI_API_KEY: z.string().trim().optional(),
+  OPENAI_MODEL: z.string().trim().min(1).max(100).default("gpt-6-luna")
 });
 
 export type AppConfig = {
@@ -16,6 +18,8 @@ export type AppConfig = {
   jwtSecret: string;
   jwtTtlSeconds: number;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+  openAiApiKey?: string;
+  openAiModel: string;
 };
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -33,6 +37,8 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     jsonStoragePath: parsed.data.JSON_STORAGE_PATH,
     jwtSecret: parsed.data.JWT_SECRET,
     jwtTtlSeconds: parsed.data.JWT_TTL_SECONDS,
-    logLevel: parsed.data.LOG_LEVEL
+    logLevel: parsed.data.LOG_LEVEL,
+    openAiApiKey: parsed.data.OPENAI_API_KEY || undefined,
+    openAiModel: parsed.data.OPENAI_MODEL
   };
 }

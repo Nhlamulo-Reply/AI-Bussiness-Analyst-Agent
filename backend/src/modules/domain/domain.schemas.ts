@@ -52,6 +52,10 @@ export const requirementSchema = z.object({
   openQuestions: stringArraySchema,
   traceability: z.object({
     documentIds: z.array(z.string().min(1)).max(100),
+    sourceFactReferences: z.array(z.object({
+      documentId: z.string().min(1),
+      text: z.string().trim().min(1).max(2000)
+    }).strict()).max(100).optional(),
     executionId: z.string().min(1).optional()
   }).strict(),
   version: z.number().int().positive(),
@@ -105,6 +109,12 @@ export const executionSchema = z.object({
   projectId: z.string().min(1),
   workflowName: z.string().min(1).max(120),
   status: z.enum(["queued", "running", "completed", "failed"]),
+  model: z.string().min(1).max(100).optional(),
+  usage: z.object({
+    requestCount: z.number().int().nonnegative(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative()
+  }).strict().optional(),
   nodeStates: z.array(z.object({
     node: z.string().min(1),
     status: z.enum(["pending", "running", "completed", "failed"]),
@@ -112,6 +122,11 @@ export const executionSchema = z.object({
     completedAt: timestampSchema.optional(),
     error: z.string().max(1000).optional()
   }).strict()),
+  result: z.record(z.string(), z.unknown()).optional(),
+  error: z.string().max(1000).optional(),
+  startedAt: timestampSchema.optional(),
+  completedAt: timestampSchema.optional(),
+  durationMs: z.number().int().nonnegative().optional(),
   createdByUserId: z.string().min(1),
   createdAt: timestampSchema,
   updatedAt: timestampSchema
@@ -165,6 +180,13 @@ export const patchRequirementBodySchema = z.object({
   openQuestions: stringArraySchema.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "Provide at least one field to update.");
 
+export const patchArtifactBodySchema = z.object({
+  title: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(8000).optional(),
+  requirementIds: z.array(z.string().min(1)).max(100).optional(),
+  data: z.record(z.string(), z.unknown()).optional()
+}).strict().refine((value) => Object.keys(value).length > 0, "Provide at least one field to update.");
+
 export const createApprovalBodySchema = z.object({
   projectId: z.string().min(1).max(128),
   artifactType: z.enum(["requirement", ...artifactTypes]),
@@ -182,6 +204,13 @@ export const projectJobBodySchema = z.object({
   documentIds: z.array(z.string().min(1)).max(100).optional(),
   requirementIds: z.array(z.string().min(1)).max(100).optional(),
   storyId: z.string().min(1).optional()
+}).strict();
+
+export const workflowJobBodySchema = z.object({
+  projectId: z.string().min(1).max(128),
+  documentIds: z.array(z.string().min(1)).min(1).max(10).optional(),
+  requirementIds: z.array(z.string().min(1)).min(1).max(100).optional(),
+  storyId: z.string().min(1).max(128).optional()
 }).strict();
 
 export type ProjectRecord = z.infer<typeof projectSchema>;

@@ -10,7 +10,8 @@ describe("loadConfig", () => {
       environment: "development",
       port: 3000,
       jsonStoragePath: "./data/ai-business-analyst.json",
-      jwtTtlSeconds: 900
+      jwtTtlSeconds: 900,
+      openAiModel: "gpt-6-luna"
     });
   });
 

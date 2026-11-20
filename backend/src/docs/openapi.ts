@@ -5,12 +5,19 @@ const jsonBody = (schema: object) => ({
   required: true,
   content: { "application/json": { schema } }
 });
-const workflowPlaceholder = (summary: string) => ({
+const workflowSubmission = (summary: string) => ({
   post: {
     summary,
     security: bearerSecurity,
-    requestBody: jsonBody({ $ref: "#/components/schemas/ProjectJob" }),
-    responses: { "501": { description: "AI workflow is not implemented; no results generated" } }
+    requestBody: jsonBody({ $ref: "#/components/schemas/WorkflowJob" }),
+    responses: {
+      "202": { description: "Workflow queued; response includes the execution record" },
+      "400": { description: "Request validation failed" },
+      "401": { description: "Authentication required" },
+      "404": { description: "Project is not accessible" },
+      "429": { description: "Workflow submission limit exceeded" },
+      "503": { description: "OpenAI provider is not configured" }
+    }
   }
 });
 
@@ -19,7 +26,7 @@ export const openApiDocument = {
   info: {
     title: "AI Business Analyst Agent API",
     version: "0.1.0",
-    description: "Phase 3 foundation and Phase 4 project/domain APIs. AI workflow endpoints remain explicit Phase 5 placeholders."
+    description: "Authenticated project and domain APIs with asynchronous LangGraph AI workflows."
   },
   servers: [{ url: "/api/v1" }],
   paths: {
@@ -115,12 +122,21 @@ export const openApiDocument = {
     "/artifacts/{id}/versions": {
       get: { summary: "List artifact version snapshots", security: bearerSecurity, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, { name: "type", in: "query", required: true, schema: { type: "string", enum: ["epic", "story", "acceptance_criteria", "business_rule", "risk", "dependency", "implementation_plan"] } }], responses: ok }
     },
+    "/artifacts/{id}": {
+      patch: {
+        summary: "Revise an artifact, save its prior version, and return it to draft",
+        security: bearerSecurity,
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: jsonBody({ type: "object", properties: { title: { type: "string" }, description: { type: "string" }, requirementIds: { type: "array", items: { type: "string" } }, data: { type: "object" } }, minProperties: 1, additionalProperties: false }),
+        responses: { ...ok, "400": { description: "Request validation failed or a linked requirement is outside the project" }, "404": { description: "Artifact not found" }, "409": { description: "Artifact has a pending approval" } }
+      }
+    },
     "/approvals": {
       post: {
         summary: "Submit a requirement or artifact for review",
         security: bearerSecurity,
         requestBody: jsonBody({ type: "object", required: ["projectId", "artifactType", "artifactId"], properties: { projectId: { type: "string" }, artifactType: { type: "string" }, artifactId: { type: "string" }, comments: { type: "string" } }, additionalProperties: false }),
-        responses: created
+        responses: { ...created, "409": { description: "Only draft artifacts without pending approvals can be submitted" } }
       }
     },
     "/approvals/{id}": {
@@ -141,15 +157,15 @@ export const openApiDocument = {
         responses: { ...ok, "403": { description: "Admin role required" } }
       }
     },
-    "/requirements/analyze": workflowPlaceholder("Analyze project requirements (Phase 5 placeholder)"),
-    "/requirements/extract": workflowPlaceholder("Extract requirements (Phase 5 placeholder)"),
-    "/stories/generate": workflowPlaceholder("Generate stories (Phase 5 placeholder)"),
-    "/acceptance-criteria/generate": workflowPlaceholder("Generate acceptance criteria (Phase 5 placeholder)"),
-    "/requirements/validate": workflowPlaceholder("Validate requirements (Phase 5 placeholder)"),
-    "/risks/analyze": workflowPlaceholder("Analyze risks (Phase 5 placeholder)"),
-    "/roadmap/generate": workflowPlaceholder("Generate a roadmap (Phase 5 placeholder)"),
+    "/requirements/analyze": workflowSubmission("Analyze source documents and create draft requirements"),
+    "/requirements/extract": workflowSubmission("Extract cited draft requirements from source documents"),
+    "/stories/generate": workflowSubmission("Generate draft stories linked to project requirements"),
+    "/acceptance-criteria/generate": workflowSubmission("Generate draft acceptance criteria for a project story"),
+    "/requirements/validate": workflowSubmission("Review project requirements and artifacts"),
+    "/risks/analyze": workflowSubmission("Analyze risks and dependencies"),
+    "/roadmap/generate": workflowSubmission("Generate an implementation roadmap"),
     "/executions/{id}": {
-      get: { summary: "Get workflow execution status", security: bearerSecurity, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { ...ok, "404": { description: "Execution not found" } } }
+      get: { summary: "Get workflow execution status and result", security: bearerSecurity, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { ...ok, "404": { description: "Execution not found or project is not accessible" } } }
     }
   },
   components: {
@@ -161,10 +177,15 @@ export const openApiDocument = {
         properties: { email: { type: "string", format: "email" }, password: { type: "string", minLength: 12, maxLength: 128 } },
         additionalProperties: false
       },
-      ProjectJob: {
+      WorkflowJob: {
         type: "object",
         required: ["projectId"],
-        properties: { projectId: { type: "string" }, documentIds: { type: "array", items: { type: "string" } }, requirementIds: { type: "array", items: { type: "string" } }, storyId: { type: "string" } },
+        properties: {
+          projectId: { type: "string" },
+          documentIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 10 },
+          requirementIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 100 },
+          storyId: { type: "string", maxLength: 128 }
+        },
         additionalProperties: false
       }
     }

@@ -4,6 +4,8 @@ import { createApp } from "./app";
 import { loadConfig } from "./config/env";
 import { JsonFileStorage } from "./config/storage";
 import { createLogger } from "./config/logger";
+import { WorkflowService } from "./workflows/workflow-service";
+import { OpenAiStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
 
 export async function startServer(): Promise<{
   close: () => Promise<void>;
@@ -22,7 +24,14 @@ export async function startServer(): Promise<{
     throw error;
   }
 
-  const app = createApp({ config, storage, users: storage, logger });
+  const workflowService = new WorkflowService(
+    storage,
+    config.openAiApiKey
+      ? new OpenAiStructuredOutputProvider(config.openAiApiKey, config.openAiModel)
+      : undefined,
+    logger
+  );
+  const app = createApp({ config, storage, users: storage, logger, workflowService });
   const server = createServer(app);
 
   await new Promise<void>((resolve, reject) => {
@@ -32,6 +41,7 @@ export async function startServer(): Promise<{
       resolve();
     });
   }).catch(async (error: unknown) => {
+    await workflowService.close();
     await storage.close();
     throw error;
   });
@@ -47,7 +57,7 @@ export async function startServer(): Promise<{
             reject(error);
             return;
           }
-          void storage.close().then(resolve, reject);
+          void workflowService.close().then(() => storage.close()).then(resolve, reject);
         });
       });
     }

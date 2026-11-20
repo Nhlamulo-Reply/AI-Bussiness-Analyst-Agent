@@ -31,16 +31,17 @@ JSON-file storage is temporary, single-process storage configured by `JSON_STORA
 | `GET` | `/artifacts/:id/versions?type=...` | Lists snapshots for a supported artifact type. |
 | `POST` | `/projects/:id/artifacts` | Creates a draft epic, story, acceptance criteria, business rule, risk, dependency, or implementation plan record; linked requirements must belong to the project. |
 | `GET` | `/projects/:id/artifacts?page=&limit=` | Lists project artifacts. |
+| `PATCH` | `/artifacts/:id` | Edits an artifact, saves the previous snapshot, increments its version, and returns it to draft; linked requirements must belong to the same project. An artifact with a pending approval cannot be edited. |
 | `POST` | `/approvals` | Submits a requirement/artifact for review. |
 | `PATCH` | `/approvals/:id` | Reviewer/admin decides pending submission; self-review is rejected and completed approvals cannot be changed. |
 | `PATCH` | `/users/:id/roles` | Admin assigns roles. New registrations cannot assign elevated roles. Role changes apply to newly issued tokens. |
 | `GET` | `/projects/:id/export?format=json\|markdown\|csv` | Exports project, requirements, artifacts, and approval data. Document file bytes are excluded. |
 
-Project resources are visible only to the project owner and members. Project-member editing is owner-only. Approval decisions create a version snapshot and update the underlying artifact status. For initial local setup, an administrator must be provisioned out of band in the JSON store before using admin-only role assignment.
+Project resources are visible only to the project owner and members. Project-member editing is owner-only. Approval decisions create a version snapshot and update the underlying artifact status. Only drafts without an existing pending approval can be submitted. Exports include each requirement and artifact's draft/approved/rejected status. For initial local setup, an administrator must be provisioned out of band in the JSON store before using admin-only role assignment.
 
-## Phase 5 workflow placeholders
+## Phase 5 asynchronous workflows
 
-The following authenticated endpoints validate the project request but intentionally return `501 NOT_IMPLEMENTED` without creating or fabricating results:
+The following authenticated, project-scoped endpoints enqueue LangGraph jobs and return `202` with the execution record:
 
 - `POST /requirements/analyze`
 - `POST /requirements/extract`
@@ -50,11 +51,15 @@ The following authenticated endpoints validate the project request but intention
 - `POST /risks/analyze`
 - `POST /roadmap/generate`
 
-`GET /executions/:id` returns an execution record only when one exists and the caller can access its project. AI execution remains Phase 5 work.
+Workflow requests accept `projectId` and optional project-owned `documentIds`, `requirementIds`, or `storyId`. Each submission is limited to 10 documents and 40,000 extracted input characters; at most 10 workflow submissions are accepted per 15 minutes per client IP. `GET /executions/:id` returns the queued/running/completed/failed status, node states, timestamps, and a validated result only when the caller can access its project.
+
+Set `OPENAI_API_KEY` locally to enable provider calls; without it, submissions return `503 AI_PROVIDER_NOT_CONFIGURED`. Source documents and project context included in a workflow request are sent to OpenAI. Requests disable OpenAI response storage, but callers must still ensure they are permitted to share the selected content. AI outputs are persisted as drafts, with source citations checked against extracted text.
+
+Execution runs are in-process and persisted to the temporary JSON store. They are not crash-resumable and are not suitable for multi-process production deployment. Graceful shutdown waits for active jobs.
 
 ## Operational notes
 
 - Swagger UI is available at `/api-docs`.
 - Pagination rejects invalid page/limit values rather than silently clamping them.
 - File upload errors use `400` for unsupported/mismatched content and `413` for files over 5 MiB.
-- MongoDB, AI model integrations, document text extraction, and actual asynchronous workflows are not implemented in Phase 4.
+- MongoDB remains deferred; workflow jobs use the configured temporary JSON storage and OpenAI integration.
