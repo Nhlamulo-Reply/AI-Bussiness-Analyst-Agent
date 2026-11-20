@@ -28,7 +28,7 @@ export class WorkflowService {
       throw new AppError(503, "SERVICE_UNAVAILABLE", "Workflow processing is shutting down.");
     }
     if (!this.provider) {
-      throw new AppError(503, "AI_PROVIDER_NOT_CONFIGURED", "Set OPENAI_API_KEY to enable AI workflows.");
+      throw new AppError(503, "AI_PROVIDER_NOT_CONFIGURED", "Configure the selected LLM provider to enable AI workflows.");
     }
     if (!(await this.storage.userCanAccessProject(request.projectId, actorUserId))) {
       throw new AppError(404, "NOT_FOUND", "Project not found.");

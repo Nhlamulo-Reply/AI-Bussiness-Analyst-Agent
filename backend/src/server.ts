@@ -5,7 +5,7 @@ import { loadConfig } from "./config/env";
 import { JsonFileStorage } from "./config/storage";
 import { createLogger } from "./config/logger";
 import { WorkflowService } from "./workflows/workflow-service";
-import { OpenAiStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
+import { createStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
 
 export async function startServer(): Promise<{
   close: () => Promise<void>;
@@ -26,9 +26,7 @@ export async function startServer(): Promise<{
 
   const workflowService = new WorkflowService(
     storage,
-    config.openAiApiKey
-      ? new OpenAiStructuredOutputProvider(config.openAiApiKey, config.openAiModel)
-      : undefined,
+    createStructuredOutputProvider(config),
     logger
   );
   const app = createApp({ config, storage, users: storage, logger, workflowService });

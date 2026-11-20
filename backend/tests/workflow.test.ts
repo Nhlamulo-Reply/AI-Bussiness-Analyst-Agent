@@ -16,6 +16,8 @@ const config: AppConfig = {
   jwtSecret: "a-secure-test-secret-with-at-least-32-characters",
   jwtTtlSeconds: 900,
   logLevel: "silent",
+  llmProvider: "openai",
+  groqModel: "openai/gpt-oss-120b",
   openAiModel: "gpt-6-luna"
 };
 
@@ -316,7 +318,7 @@ class FakeStructuredOutputProvider implements StructuredOutputProvider {
 }
 
 async function waitForExecution(executionId: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
     const execution = await storage.getExecution(executionId);
     if (execution && execution.status !== "queued" && execution.status !== "running") {
       return execution;

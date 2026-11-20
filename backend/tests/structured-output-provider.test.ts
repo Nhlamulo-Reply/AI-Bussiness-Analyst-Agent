@@ -8,7 +8,10 @@ jest.mock("openai", () => ({
   }))
 }));
 
-const { OpenAiStructuredOutputProvider } = require("../src/integrations/llm/structured-output-provider") as
+const {
+  createStructuredOutputProvider,
+  OpenAiStructuredOutputProvider
+} = require("../src/integrations/llm/structured-output-provider") as
   typeof import("../src/integrations/llm/structured-output-provider");
 const openAiConstructor = require("openai").default as jest.Mock;
 
@@ -57,6 +60,35 @@ describe("OpenAiStructuredOutputProvider", () => {
 
     await expect(provider.generate("test_output", "system", "user", z.object({ answer: z.string() })))
       .rejects.toThrow("The model did not return a structured response.");
+  });
+
+  it("configures Groq through its OpenAI-compatible Responses API", async () => {
+    mockParse.mockResolvedValue({
+      output_parsed: { answer: "validated" },
+      usage: { input_tokens: 14, output_tokens: 5 }
+    });
+    const provider = createStructuredOutputProvider({
+      llmProvider: "groq",
+      groqApiKey: "test-groq-key",
+      groqModel: "openai/gpt-oss-120b",
+      openAiModel: "unused-model"
+    });
+
+    expect(openAiConstructor).toHaveBeenCalledWith({
+      apiKey: "test-groq-key",
+      baseURL: "https://api.groq.com/openai/v1",
+      timeout: 30_000,
+      maxRetries: 1
+    });
+    if (!provider) {
+      throw new Error("Groq provider was not configured.");
+    }
+
+    await provider.generate("test_output", "System instruction", "User input", z.object({ answer: z.string() }));
+    expect(mockParse).toHaveBeenCalledWith(expect.objectContaining({
+      model: "openai/gpt-oss-120b",
+      store: false
+    }));
   });
 
   it.each(["APIConnectionTimeoutError", "RateLimitError", "APIConnectionError"])(
