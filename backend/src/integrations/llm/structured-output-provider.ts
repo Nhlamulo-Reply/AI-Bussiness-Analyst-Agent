@@ -18,14 +18,28 @@ export interface ProviderUsage {
   outputTokens: number;
 }
 
+export interface StructuredOutputProviderConfig {
+  llmProvider: "openai" | "groq";
+  openAiApiKey?: string;
+  openAiModel: string;
+  groqApiKey?: string;
+  groqModel: string;
+}
+
 export class OpenAiStructuredOutputProvider implements StructuredOutputProvider {
   private readonly client: OpenAI;
 
   constructor(
     apiKey: string,
-    readonly model: string
+    readonly model: string,
+    baseURL?: string
   ) {
-    this.client = new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
+    this.client = new OpenAI({
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
+      timeout: 30_000,
+      maxRetries: 1
+    });
   }
 
   async generate<T extends z.ZodType>(
@@ -58,4 +72,24 @@ export class OpenAiStructuredOutputProvider implements StructuredOutputProvider 
         : undefined
     };
   }
+}
+
+export class GroqStructuredOutputProvider extends OpenAiStructuredOutputProvider {
+  constructor(apiKey: string, model: string) {
+    super(apiKey, model, "https://api.groq.com/openai/v1");
+  }
+}
+
+export function createStructuredOutputProvider(
+  config: StructuredOutputProviderConfig
+): StructuredOutputProvider | undefined {
+  if (config.llmProvider === "groq") {
+    return config.groqApiKey
+        ? new GroqStructuredOutputProvider(config.groqApiKey, config.groqModel)
+        : undefined;
+  }
+
+  return config.openAiApiKey
+    ? new OpenAiStructuredOutputProvider(config.openAiApiKey, config.openAiModel)
+    : undefined;
 }

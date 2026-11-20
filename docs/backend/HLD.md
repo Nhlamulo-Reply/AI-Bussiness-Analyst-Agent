@@ -78,7 +78,7 @@ The backend runs as a single service with separate internal modules. `backend/Do
 
 ### Production deployment
 - containerized app with a persistent `/data` volume and exactly one replica while JSON storage is used
-- secret manager for `JWT_SECRET` and optional `OPENAI_API_KEY`
+- secret manager for `JWT_SECRET` and the selected provider key (`OPENAI_API_KEY` or `GROQ_API_KEY`)
 - TLS termination at a trusted ingress, with readiness `/api/v1/health/ready` and liveness `/api/v1/health/live`
 - structured logs collected from stdout/stderr; do not log document bodies or credentials
 - encrypted, access-controlled JSON-volume backups and restoration drills

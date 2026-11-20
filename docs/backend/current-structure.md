@@ -59,7 +59,7 @@ C:/Users/SefediFrancisKgomo/AI-Bussiness-Analyst-Agent
 - Security headers and authentication rate limiting
 - Liveness/readiness routes and Swagger UI
 - Project creation/list/read, project membership, document upload/metadata list, requirements, artifacts, approvals, versions, exports, and execution lookup
-- Asynchronous LangGraph workflows with OpenAI structured outputs, PDF/DOCX/text extraction, node status and execution records
+- Asynchronous LangGraph workflows with OpenAI or Groq structured outputs, PDF/DOCX/text extraction, node status and execution records
 - Jest/Supertest API and storage tests with isolated temporary JSON files
 
 ## Still deferred
@@ -82,4 +82,4 @@ C:/Users/SefediFrancisKgomo/AI-Bussiness-Analyst-Agent
 
 ## Conclusion
 
-Phase 5 workflows run against the temporary single-process JSON store and optional OpenAI provider. MongoDB remains deferred; Phase 6 requires explicit approval.
+Phase 5 workflows run against the temporary single-process JSON store and an optional configured OpenAI or Groq provider. MongoDB remains deferred.

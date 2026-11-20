@@ -110,13 +110,13 @@ Long-running analysis jobs must not block request handling. The planned API cont
 
 This keeps the API responsive while preserving traceability and auditability.
 
-Workflow endpoints return `503 AI_PROVIDER_NOT_CONFIGURED` if `OPENAI_API_KEY` is absent. Runs are in-process and cannot resume after a crash; graceful shutdown waits for active runs. The JSON adapter remains single-process and is not a durable job queue.
+Workflow endpoints return `503 AI_PROVIDER_NOT_CONFIGURED` if the selected provider's key is absent. Configure `LLM_PROVIDER=openai` with `OPENAI_API_KEY` or `LLM_PROVIDER=groq` with `GROQ_API_KEY`. Runs are in-process and cannot resume after a crash; graceful shutdown waits for active runs. The JSON adapter remains single-process and is not a durable job queue.
 
 ## Container and operations boundary
 
 `backend/Dockerfile` packages the compiled service, installs only production dependencies in the runtime image, and stores the JSON file under the mounted `/data` volume. Its health check calls `/api/v1/health/ready`; `/api/v1/health/live` reports process liveness.
 
-The container is a packaging and single-instance deployment option, not a production-scale persistence solution. Keep one replica and a persistent volume for `/data`; do not share the JSON file between containers. Store `JWT_SECRET` and optional `OPENAI_API_KEY` in the hosting platform's secret manager, terminate TLS at a trusted ingress, and collect structured stdout/stderr logs. MongoDB configuration, migration, and backup operations remain future work until its adapter is implemented and approved.
+The container is a packaging and single-instance deployment option, not a production-scale persistence solution. Keep one replica and a persistent volume for `/data`; do not share the JSON file between containers. Store `JWT_SECRET` and the selected provider's API key in the hosting platform's secret manager, terminate TLS at a trusted ingress, and collect structured stdout/stderr logs. MongoDB configuration, migration, and backup operations remain future work until its adapter is implemented and approved.
 
 ## Security model
 

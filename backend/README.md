@@ -1,6 +1,6 @@
 # AI Business Analyst Agent Backend
 
-Node.js/TypeScript API with temporary JSON-file storage and asynchronous LangGraph workflows using OpenAI structured outputs. MongoDB remains a later storage target.
+Node.js/TypeScript API with temporary JSON-file storage and asynchronous LangGraph workflows using structured outputs from OpenAI or Groq. MongoDB remains a later storage target.
 
 ## Requirements
 
@@ -18,7 +18,7 @@ Copy-Item .env.example .env
 
 Set `JWT_SECRET` in `.env` to a private random value of at least 32 characters. `JSON_STORAGE_PATH` defaults to `./data/ai-business-analyst.json`, relative to the backend working directory. Keep `.env` private and never commit credentials or stored user data.
 
-Set `OPENAI_API_KEY` locally to enable AI workflows; it is optional at startup. `OPENAI_MODEL` defaults to `gpt-6-luna` and can be changed to a model available to your OpenAI account. Workflow requests send the selected source/project context to OpenAI using structured outputs with response storage disabled. Do not send sensitive documents unless authorized to do so.
+AI workflows are optional at startup. Set `LLM_PROVIDER=openai` with `OPENAI_API_KEY` and `OPENAI_MODEL`, or set `LLM_PROVIDER=groq` with `GROQ_API_KEY` and `GROQ_MODEL`. The Groq model defaults to `openai/gpt-oss-120b`, which supports structured outputs. The OpenAI client connects to Groq's OpenAI-compatible Responses API when Groq is selected. Workflow requests send the selected source/project context to the configured provider, with response storage disabled. Do not send sensitive documents unless authorized to do so.
 
 ## Run locally
 
@@ -51,7 +51,7 @@ docker run --rm --name ai-business-analyst-agent-backend `
   ai-business-analyst-agent-backend:local
 ```
 
-Set `JWT_SECRET` in the shell or inject it from a secret manager before running the container. To enable AI workflows, separately configure `OPENAI_API_KEY` through the same secret mechanism and pass `--env OPENAI_API_KEY`. The image does not copy `.env` files. The process runs as the non-root `node` user, stores its JSON file under `/data`, and exposes port `3000`. A container health check calls `/api/v1/health/ready`; use `/api/v1/health/live` for process liveness.
+Set `JWT_SECRET` in the shell or inject it from a secret manager before running the container. To enable AI workflows, configure the selected provider's key (`OPENAI_API_KEY` or `GROQ_API_KEY`) and `LLM_PROVIDER` through the same secret mechanism. The image does not copy `.env` files. The process runs as the non-root `node` user, stores its JSON file under `/data`, and exposes port `3000`. A container health check calls `/api/v1/health/ready`; use `/api/v1/health/live` for process liveness.
 
 Keep the named `/data` volume across container replacement. This JSON-backed service is single-process and supports one replica only; it is not production-ready for horizontally scaled or ephemeral-storage deployments. Do not mount the same JSON file into multiple containers.
 

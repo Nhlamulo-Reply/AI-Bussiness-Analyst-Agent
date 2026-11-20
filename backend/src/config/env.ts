@@ -7,8 +7,11 @@ const environmentSchema = z.object({
   JWT_SECRET: z.string().min(32, "Must contain at least 32 characters"),
   JWT_TTL_SECONDS: z.coerce.number().int().min(60).max(86400).default(900),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  LLM_PROVIDER: z.enum(["openai", "groq"]).default("openai"),
   OPENAI_API_KEY: z.string().trim().optional(),
-  OPENAI_MODEL: z.string().trim().min(1).max(100).default("gpt-6-luna")
+  OPENAI_MODEL: z.string().trim().min(1).max(100).default("gpt-6-luna"),
+  GROQ_API_KEY: z.string().trim().optional(),
+  GROQ_MODEL: z.string().trim().min(1).max(100).default("openai/gpt-oss-120b")
 });
 
 export type AppConfig = {
@@ -18,8 +21,11 @@ export type AppConfig = {
   jwtSecret: string;
   jwtTtlSeconds: number;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+  llmProvider: "openai" | "groq";
   openAiApiKey?: string;
   openAiModel: string;
+  groqApiKey?: string;
+  groqModel: string;
 };
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -38,7 +44,10 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     jwtSecret: parsed.data.JWT_SECRET,
     jwtTtlSeconds: parsed.data.JWT_TTL_SECONDS,
     logLevel: parsed.data.LOG_LEVEL,
+    llmProvider: parsed.data.LLM_PROVIDER,
     openAiApiKey: parsed.data.OPENAI_API_KEY || undefined,
-    openAiModel: parsed.data.OPENAI_MODEL
+    openAiModel: parsed.data.OPENAI_MODEL,
+    groqApiKey: parsed.data.GROQ_API_KEY || undefined,
+    groqModel: parsed.data.GROQ_MODEL
   };
 }
