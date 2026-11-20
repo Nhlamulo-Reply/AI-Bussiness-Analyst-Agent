@@ -53,7 +53,7 @@ The following authenticated, project-scoped endpoints enqueue LangGraph jobs and
 
 Workflow requests accept `projectId` and optional project-owned `documentIds`, `requirementIds`, or `storyId`. Each submission is limited to 10 documents and 40,000 extracted input characters; at most 10 workflow submissions are accepted per 15 minutes per client IP. `GET /executions/:id` returns the queued/running/completed/failed status, node states, timestamps, and a validated result only when the caller can access its project.
 
-Set `OPENAI_API_KEY` locally to enable provider calls; without it, submissions return `503 AI_PROVIDER_NOT_CONFIGURED`. Source documents and project context included in a workflow request are sent to OpenAI. Requests disable OpenAI response storage, but callers must still ensure they are permitted to share the selected content. AI outputs are persisted as drafts, with source citations checked against extracted text.
+Set `LLM_PROVIDER=openai` with `OPENAI_API_KEY`, or `LLM_PROVIDER=groq` with `GROQ_API_KEY`, to enable provider calls; without the selected provider's key, submissions return `503 AI_PROVIDER_NOT_CONFIGURED`. Source documents and project context included in a workflow request are sent to the configured provider. Requests disable response storage, but callers must still ensure they are permitted to share the selected content. AI outputs are persisted as drafts, with source citations checked against extracted text.
 
 Execution runs are in-process and persisted to the temporary JSON store. They are not crash-resumable and are not suitable for multi-process production deployment. Graceful shutdown waits for active jobs.
 
