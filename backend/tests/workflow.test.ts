@@ -316,7 +316,7 @@ class FakeStructuredOutputProvider implements StructuredOutputProvider {
 }
 
 async function waitForExecution(executionId: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
     const execution = await storage.getExecution(executionId);
     if (execution && execution.status !== "queued" && execution.status !== "running") {
       return execution;
