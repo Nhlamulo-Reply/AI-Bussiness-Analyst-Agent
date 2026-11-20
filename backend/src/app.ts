@@ -19,7 +19,7 @@ import { createUserRouter } from "./modules/users/user.routes";
 import { createArtifactRouter } from "./modules/artifacts/artifact.routes";
 import { openApiDocument } from "./docs/openapi";
 import { WorkflowService } from "./workflows/workflow-service";
-import { OpenAiStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
+import { createStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -35,9 +35,7 @@ export function createApp(dependencies: AppDependencies): Express {
   const logger = dependencies.logger ?? createLogger(dependencies.config);
   const workflowService = dependencies.workflowService ?? new WorkflowService(
     dependencies.storage,
-    dependencies.config.openAiApiKey
-      ? new OpenAiStructuredOutputProvider(dependencies.config.openAiApiKey, dependencies.config.openAiModel)
-      : undefined,
+    createStructuredOutputProvider(dependencies.config),
     logger
   );
 

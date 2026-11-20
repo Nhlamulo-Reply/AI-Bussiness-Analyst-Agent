@@ -16,6 +16,8 @@ const config: AppConfig = {
   jwtSecret: "a-secure-test-secret-with-at-least-32-characters",
   jwtTtlSeconds: 900,
   logLevel: "silent",
+  llmProvider: "openai",
+  groqModel: "openai/gpt-oss-120b",
   openAiModel: "gpt-6-luna"
 };
 

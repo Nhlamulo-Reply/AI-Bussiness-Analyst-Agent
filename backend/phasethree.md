@@ -133,7 +133,7 @@ The normal API response shape is `{ success, data, requestId }`. Errors use `{ s
 | `PATCH /api/v1/approvals/:id` | Records a review decision. | Reviewer/admin only; self-review is rejected; decided approvals cannot be changed. |
 | `PATCH /api/v1/users/:id/roles` | Assigns user roles. | Admin-only. Initial admin provisioning is out-of-band; changed roles take effect for newly issued tokens. |
 | `GET /api/v1/projects/:id/export?format=json\|markdown\|csv` | Exports project data. | Document file bytes are excluded. |
-| `POST /api/v1/requirements/analyze`, `/requirements/extract`, `/stories/generate`, `/acceptance-criteria/generate`, `/requirements/validate`, `/risks/analyze`, `/roadmap/generate` | Queues a Phase 5 workflow. | Returns `202` with an execution record; requires `OPENAI_API_KEY`; missing key returns `503`. |
+| `POST /api/v1/requirements/analyze`, `/requirements/extract`, `/stories/generate`, `/acceptance-criteria/generate`, `/requirements/validate`, `/risks/analyze`, `/roadmap/generate` | Queues a Phase 5 workflow. | Returns `202` with an execution record; requires the selected provider's API key; missing key returns `503`. |
 | `GET /api/v1/executions/:id` | Reads an execution record. | Returns `404` if no record exists or project access is denied. |
 | `GET /api-docs` | Serves the Swagger UI. | Documents the implemented Phase 3–5 endpoints. |
 
@@ -229,8 +229,11 @@ The analysis route also identifies stakeholders before extraction. Story generat
 | `JWT_SECRET` | Required, minimum 32 characters | Signs and verifies access tokens. |
 | `JWT_TTL_SECONDS` | Defaults to `900`; allowed `60–86400` | Access-token lifetime. |
 | `LOG_LEVEL` | Defaults to `info` | Pino log level. |
-| `OPENAI_API_KEY` | Optional | Enables live workflow calls; never commit the real key. |
+| `LLM_PROVIDER` | Defaults to `openai` | Selects `openai` or `groq`. |
+| `OPENAI_API_KEY` | Optional | Enables OpenAI workflow calls; never commit the real key. |
 | `OPENAI_MODEL` | Defaults to `gpt-6-luna` | OpenAI model for structured workflow output. |
+| `GROQ_API_KEY` | Optional | Enables Groq workflow calls; never commit the real key. |
+| `GROQ_MODEL` | Defaults to `openai/gpt-oss-120b` | Groq model for structured workflow output. |
 
 ## 8. Authentication and project access in plain language
 
