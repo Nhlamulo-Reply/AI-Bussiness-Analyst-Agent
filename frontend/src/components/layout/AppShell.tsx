@@ -147,11 +147,7 @@ export function AppShell() {
             </span>
           </div>
           <div className="profile-link">
-            <Link
-              aria-label="View profile"
-              className="profile-link__details"
-              to="/app/profile"
-            >
+            <Link className="profile-link__details" to="/app/profile">
               <span className="profile-link__avatar">
                 <UserRound aria-hidden="true" size={17} />
               </span>
@@ -159,6 +155,7 @@ export function AppShell() {
                 <strong title={user?.email}>{user?.email}</strong>
                 <small>{user?.roles.map(getRoleLabel).join(" · ")}</small>
               </span>
+              <span className="visually-hidden">View profile</span>
             </Link>
             <IconButton label="Sign out" onClick={handleSignOut}>
               <LogOut aria-hidden="true" size={17} />

@@ -107,6 +107,19 @@ export const openApiDocument = {
         responses: created
       }
     },
+    "/projects/{projectId}/approvals": {
+      get: {
+        summary: "List approvals for a project (reviewer/admin)",
+        security: bearerSecurity,
+        parameters: [
+          { name: "projectId", in: "path", required: true, schema: { type: "string" } },
+          { name: "decision", in: "query", schema: { type: "string", enum: ["pending", "approved", "rejected", "changes_requested"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } }
+        ],
+        responses: { ...ok, "200": { description: "Paginated approval records for the project" }, "400": { description: "Invalid filter or pagination" }, "403": { description: "Reviewer or admin role required" }, "404": { description: "Project not found or inaccessible" } }
+      }
+    },
     "/requirements/{id}": {
       patch: {
         summary: "Revise a draft requirement and create a version snapshot",
@@ -120,7 +133,15 @@ export const openApiDocument = {
       get: { summary: "List requirement version snapshots", security: bearerSecurity, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: ok }
     },
     "/artifacts/{id}/versions": {
-      get: { summary: "List artifact version snapshots", security: bearerSecurity, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, { name: "type", in: "query", required: true, schema: { type: "string", enum: ["epic", "story", "acceptance_criteria", "business_rule", "risk", "dependency", "implementation_plan"] } }], responses: ok }
+      get: {
+        summary: "List artifact version snapshots",
+        security: bearerSecurity,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "type", in: "query", required: true, schema: { type: "string", enum: ["epic", "story", "acceptance_criteria", "business_rule", "risk", "dependency", "implementation_plan"] } }
+        ],
+        responses: ok
+      }
     },
     "/artifacts/{id}": {
       patch: {
@@ -140,6 +161,12 @@ export const openApiDocument = {
       }
     },
     "/approvals/{id}": {
+      get: {
+        summary: "Get an approval and its current requirement or artifact (reviewer/admin)",
+        security: bearerSecurity,
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { ...ok, "200": { description: "Approval record and its current requirement or artifact resource" }, "403": { description: "Reviewer or admin role required" }, "404": { description: "Approval not found or inaccessible" } }
+      },
       patch: {
         summary: "Approve, reject, or request changes (reviewer/admin; no self-review)",
         security: bearerSecurity,

@@ -14,7 +14,7 @@ import { createAuthRouter } from "./modules/auth/auth.routes";
 import { createProjectRouter } from "./modules/projects/project.routes";
 import { createRequirementRouter } from "./modules/requirements/requirement.routes";
 import { createWorkflowRouter } from "./modules/workflows/workflow.routes";
-import { createApprovalRouter } from "./modules/approvals/approval.routes";
+import { createApprovalRouter, createProjectApprovalRouter } from "./modules/approvals/approval.routes";
 import { createUserRouter } from "./modules/users/user.routes";
 import { createArtifactRouter } from "./modules/artifacts/artifact.routes";
 import { openApiDocument } from "./docs/openapi";
@@ -81,6 +81,7 @@ export function createApp(dependencies: AppDependencies): Express {
     dependencies.config.jwtSecret,
     workflowService
   ));
+  app.use("/api/v1/projects", createProjectApprovalRouter(dependencies.storage, dependencies.config.jwtSecret));
   app.use("/api/v1/approvals", createApprovalRouter(dependencies.storage, dependencies.config.jwtSecret));
   app.use("/api/v1/users", createUserRouter(dependencies.storage, dependencies.config.jwtSecret));
   app.use("/api/v1/artifacts", createArtifactRouter(dependencies.storage, dependencies.config.jwtSecret));

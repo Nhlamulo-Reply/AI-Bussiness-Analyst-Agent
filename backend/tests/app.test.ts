@@ -251,6 +251,24 @@ describe("backend foundation", () => {
         artifactType: "requirement",
         artifactId: requirement.body.data.id
       });
+    const approvalQueue = await request(app)
+      .get(`/api/v1/projects/${project.id}/approvals?decision=pending&page=1&limit=1`)
+      .set("Authorization", `Bearer ${reviewerLogin}`);
+    const approvalDetail = await request(app)
+      .get(`/api/v1/approvals/${approval.body.data.id}`)
+      .set("Authorization", `Bearer ${reviewerLogin}`);
+    const unauthorizedApprovalQueue = await request(app)
+      .get(`/api/v1/projects/${project.id}/approvals`)
+      .set("Authorization", `Bearer ${regularMember.token}`);
+    const inaccessibleApprovalQueue = await request(app)
+      .get(`/api/v1/projects/${otherProject.id}/approvals`)
+      .set("Authorization", `Bearer ${reviewerLogin}`);
+    const invalidApprovalFilter = await request(app)
+      .get(`/api/v1/projects/${project.id}/approvals?decision=waiting`)
+      .set("Authorization", `Bearer ${reviewerLogin}`);
+    const unauthorizedApprovalDetail = await request(app)
+      .get(`/api/v1/approvals/${approval.body.data.id}`)
+      .set("Authorization", `Bearer ${regularMember.token}`);
     const ownReview = await request(app)
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${ownerReviewerLogin}`)
@@ -263,6 +281,9 @@ describe("backend foundation", () => {
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
       .send({ decision: "approved", comments: "Reviewed." });
+    const approvedQueue = await request(app)
+      .get(`/api/v1/projects/${project.id}/approvals?decision=approved`)
+      .set("Authorization", `Bearer ${reviewerLogin}`);
     const duplicateDecision = await request(app)
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
@@ -271,6 +292,9 @@ describe("backend foundation", () => {
       .post("/api/v1/approvals")
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ projectId: project.id, artifactType: "story", artifactId: artifact.body.data.id });
+    const artifactApprovalDetail = await request(app)
+      .get(`/api/v1/approvals/${artifactApproval.body.data.id}`)
+      .set("Authorization", `Bearer ${reviewerLogin}`);
     const duplicateArtifactApproval = await request(app)
       .post("/api/v1/approvals")
       .set("Authorization", `Bearer ${owner.token}`)
@@ -311,9 +335,33 @@ describe("backend foundation", () => {
     expect(invalidArtifactEdit.status).toBe(400);
     expect(edit.body.data.version).toBe(2);
     expect(versions.body.data).toHaveLength(1);
+    expect(approvalQueue.status).toBe(200);
+    expect(approvalQueue.body.data).toMatchObject({
+      page: 1,
+      limit: 1,
+      total: 1,
+      items: [{ id: approval.body.data.id, decision: "pending" }]
+    });
+    expect(approvalDetail.status).toBe(200);
+    expect(approvalDetail.body.data).toMatchObject({
+      approval: { id: approval.body.data.id },
+      resource: {
+        id: requirement.body.data.id,
+        title: "Business requirement",
+        status: "draft"
+      }
+    });
+    expect(unauthorizedApprovalQueue.status).toBe(403);
+    expect(inaccessibleApprovalQueue.status).toBe(404);
+    expect(invalidApprovalFilter.status).toBe(400);
+    expect(unauthorizedApprovalDetail.status).toBe(403);
     expect(ownReview.status).toBe(403);
     expect(unauthorizedReview.status).toBe(403);
     expect(decision.status).toBe(200);
+    expect(approvedQueue.body.data).toMatchObject({
+      total: 1,
+      items: [{ id: approval.body.data.id, decision: "approved" }]
+    });
     expect(decision.body.data.decision).toBe("approved");
     expect(decision.body.data).toMatchObject({
       reviewerUserId: reviewer.id,
@@ -323,6 +371,12 @@ describe("backend foundation", () => {
     });
     expect(duplicateDecision.status).toBe(409);
     expect(artifactDecision.status).toBe(200);
+    expect(artifactApprovalDetail.status).toBe(200);
+    expect(artifactApprovalDetail.body.data.resource).toMatchObject({
+      id: artifact.body.data.id,
+      type: "story",
+      title: "Revised user story"
+    });
     expect(duplicateArtifactApproval.status).toBe(409);
     expect(editWhilePending.status).toBe(409);
     expect(updatedRequirements.body.data.items[0]).toMatchObject({ status: "approved", version: 3 });

@@ -122,6 +122,12 @@ export interface Storage extends ProjectRepository {
   listArtifacts(projectId: string, page: number, limit: number): Promise<Page<ArtifactRecord>>;
   createApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   getApproval(approvalId: string): Promise<ApprovalRecord | null>;
+  listApprovals(
+    projectId: string,
+    page: number,
+    limit: number,
+    decision?: ApprovalDecision
+  ): Promise<Page<ApprovalRecord>>;
   decideApproval(
     approvalId: string,
     reviewerUserId: string,
@@ -430,6 +436,18 @@ export class JsonFileStorage implements Storage, UserRepository, ProjectReposito
 
   async getApproval(approvalId: string): Promise<ApprovalRecord | null> {
     return this.findRecord("approvals", approvalId);
+  }
+
+  async listApprovals(
+    projectId: string,
+    page: number,
+    limit: number,
+    decision?: ApprovalDecision
+  ): Promise<Page<ApprovalRecord>> {
+    const approvals = this.getState().approvals
+      .filter((approval) => approval.projectId === projectId && (decision === undefined || approval.decision === decision))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return makePage(approvals, page, limit);
   }
 
   decideApproval(

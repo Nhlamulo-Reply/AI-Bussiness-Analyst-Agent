@@ -16,6 +16,8 @@ coverage
 .env.*
 !.env.example
 *.tsbuildinfo
+test-results
+playwright-report
 
 # Editor directories and files
 .vscode/*

@@ -106,7 +106,9 @@ describe("ProjectListPage", () => {
     const userActions = userEvent.setup();
 
     expect(
-      await screen.findByRole("link", { name: "Open Customer onboarding" }),
+      await screen.findByRole("link", {
+        name: /^Active Customer onboarding Improve the first-use experience\.$/,
+      }),
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/projects?page=1&limit=12",
@@ -118,10 +120,14 @@ describe("ProjectListPage", () => {
       "archived",
     );
     expect(
-      screen.getByRole("link", { name: "Open Archive migration" }),
+      screen.getByRole("link", {
+        name: /^Archived Archive migration Move legacy records into the new system\.$/,
+      }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("link", { name: "Open Customer onboarding" }),
+      screen.queryByRole("link", {
+        name: /^Active Customer onboarding Improve the first-use experience\.$/,
+      }),
     ).not.toBeInTheDocument();
 
     await userActions.click(screen.getByRole("button", { name: "Table" }));
@@ -161,14 +167,18 @@ describe("ProjectListPage", () => {
     const userActions = userEvent.setup();
 
     expect(
-      await screen.findByRole("link", { name: "Open Project 1" }),
+      await screen.findByRole("link", {
+        name: /^Active Project 1 Improve the first-use experience\.$/,
+      }),
     ).toBeInTheDocument();
     await userActions.click(
       screen.getByRole("button", { name: "Next project page" }),
     );
 
     expect(
-      await screen.findByRole("link", { name: "Open Project page two" }),
+      await screen.findByRole("link", {
+        name: /^Archived Project page two Move legacy records into the new system\.$/,
+      }),
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/projects?page=2&limit=12",

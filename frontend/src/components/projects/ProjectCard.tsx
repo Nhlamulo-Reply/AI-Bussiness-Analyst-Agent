@@ -21,11 +21,7 @@ export function ProjectCard({ project, compact = false }: ProjectCardProps) {
       as="article"
       className={`project-card ${compact ? "project-card--compact" : ""}`.trim()}
     >
-      <Link
-        aria-label={`Open ${project.name}`}
-        className="project-card__main"
-        to={projectPath}
-      >
+      <Link className="project-card__main" to={projectPath}>
         <div className="project-card__top">
           <span className="project-card__icon">
             <FolderKanban aria-hidden="true" size={18} />
@@ -50,7 +46,11 @@ export function ProjectCard({ project, compact = false }: ProjectCardProps) {
             Updated {formatProjectDate(project.updatedAt)}
           </span>
         </div>
-        <Link className="project-card__open" to={projectPath}>
+        <Link
+          aria-label={`Open ${project.name}`}
+          className="project-card__open"
+          to={projectPath}
+        >
           Open
           <ArrowUpRight aria-hidden="true" size={14} />
         </Link>

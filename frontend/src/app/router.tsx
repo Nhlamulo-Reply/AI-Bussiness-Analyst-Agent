@@ -1,23 +1,26 @@
+import type { ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { RequireAuth, RequireGuest, RequireRole } from "./AuthGuards";
 import { AppShell } from "../components/layout/AppShell";
-import { AuthPage } from "../pages/AuthPage";
-import { NotFoundPage } from "../pages/NotFoundPage";
-import { OverviewPage } from "../pages/OverviewPage";
-import { PagePlaceholder } from "../pages/PagePlaceholder";
-import { CreateProjectPage } from "../pages/CreateProjectPage";
-import { ProjectListPage } from "../pages/ProjectListPage";
-import { ProjectOverviewPage } from "../pages/ProjectOverviewPage";
-import { ProfilePage } from "../pages/ProfilePage";
-import { ProjectDocumentLibraryRoute } from "../pages/DocumentLibraryPage";
-import { CreateRequirementRoute } from "../pages/CreateRequirementPage";
-import { RequirementListRoute } from "../pages/RequirementListPage";
-import { WorkflowWorkbenchRoute } from "../pages/WorkflowWorkbenchPage";
-import { ArtifactWorkspaceRoute } from "../pages/ArtifactWorkspacePage";
+import {
+  ApprovalWorkspacePage,
+  ArtifactWorkspaceRoute,
+  AuthPage,
+  CreateProjectPage,
+  CreateRequirementRoute,
+  NotFoundPage,
+  OverviewPage,
+  ProfilePage,
+  ProjectDocumentLibraryRoute,
+  ProjectExportRoute,
+  ProjectListPage,
+  ProjectOverviewPage,
+  RequirementListRoute,
+  SuspendedPage,
+  WorkflowWorkbenchRoute,
+} from "./lazy-pages";
 
-const placeholder = (title: string, description: string) => (
-  <PagePlaceholder title={title} description={description} />
-);
+const page = (element: ReactNode) => <SuspendedPage>{element}</SuspendedPage>;
 
 export const router = createBrowserRouter([
   {
@@ -26,19 +29,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/login",
-    element: (
-      <RequireGuest>
-        <AuthPage mode="login" />
-      </RequireGuest>
-    ),
+    element: <RequireGuest>{page(<AuthPage mode="login" />)}</RequireGuest>,
   },
   {
     path: "/register",
-    element: (
-      <RequireGuest>
-        <AuthPage mode="register" />
-      </RequireGuest>
-    ),
+    element: <RequireGuest>{page(<AuthPage mode="register" />)}</RequireGuest>,
   },
   {
     path: "/app",
@@ -48,63 +43,57 @@ export const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <OverviewPage /> },
+      { index: true, element: page(<OverviewPage />) },
       {
         path: "projects",
-        element: <ProjectListPage />,
+        element: page(<ProjectListPage />),
       },
       {
         path: "projects/new",
-        element: <CreateProjectPage />,
+        element: page(<CreateProjectPage />),
       },
       {
         path: "projects/:projectId",
-        element: <ProjectOverviewPage />,
+        element: page(<ProjectOverviewPage />),
       },
       {
         path: "projects/:projectId/documents",
-        element: <ProjectDocumentLibraryRoute />,
+        element: page(<ProjectDocumentLibraryRoute />),
       },
       {
         path: "projects/:projectId/requirements",
-        element: <RequirementListRoute />,
+        element: page(<RequirementListRoute />),
       },
       {
         path: "projects/:projectId/requirements/new",
-        element: <CreateRequirementRoute />,
+        element: page(<CreateRequirementRoute />),
       },
       {
         path: "projects/:projectId/workflows",
-        element: <WorkflowWorkbenchRoute />,
+        element: page(<WorkflowWorkbenchRoute />),
       },
       {
         path: "projects/:projectId/artifacts",
-        element: <ArtifactWorkspaceRoute />,
+        element: page(<ArtifactWorkspaceRoute />),
       },
       {
         path: "projects/:projectId/approvals",
         element: (
           <RequireRole roles={["reviewer", "admin"]}>
-            {placeholder(
-              "Approvals",
-              "Review actions will be grounded in approval records supplied by the backend.",
-            )}
+            {page(<ApprovalWorkspacePage />)}
           </RequireRole>
         ),
       },
       {
         path: "projects/:projectId/exports",
-        element: placeholder(
-          "Project exports",
-          "Prepare project information in a format that works for your team.",
-        ),
+        element: page(<ProjectExportRoute />),
       },
       {
         path: "profile",
-        element: <ProfilePage />,
+        element: page(<ProfilePage />),
       },
-      { path: "*", element: <NotFoundPage /> },
+      { path: "*", element: page(<NotFoundPage />) },
     ],
   },
-  { path: "*", element: <NotFoundPage /> },
+  { path: "*", element: page(<NotFoundPage />) },
 ]);

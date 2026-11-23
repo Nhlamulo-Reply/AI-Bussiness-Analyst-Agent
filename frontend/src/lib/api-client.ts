@@ -90,6 +90,17 @@ export interface ApiUploadOptions<T> {
   onProgress?: (progress: number) => void;
 }
 
+export interface ApiDownloadOptions {
+  auth?: "none" | "required";
+  fallbackFilename: string;
+  signal?: AbortSignal;
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  filename: string;
+}
+
 const requestTimeoutMs = 15_000;
 const uploadTimeoutMs = 60_000;
 
@@ -184,6 +195,92 @@ export async function apiRequest<T>(
     schema,
     response.headers.get("retry-after"),
   );
+}
+
+export async function apiDownload(
+  path: string,
+  options: ApiDownloadOptions,
+): Promise<DownloadedFile> {
+  const { auth = "none", fallbackFilename, signal: externalSignal } = options;
+  const headers = new Headers({ Accept: "*/*" });
+  const token = auth === "required" ? getSession()?.accessToken : undefined;
+  if (auth === "required" && !token) {
+    throw new ApiError(401, "UNAUTHORIZED", "Please sign in to continue.");
+  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+  const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    const response = await fetch(getRequestUrl(path), {
+      method: "GET",
+      headers,
+      signal: controller.signal,
+      credentials: "omit",
+      cache: "no-store",
+    });
+    if (
+      response.status === 401 &&
+      auth === "required" &&
+      token === getSession()?.accessToken
+    ) {
+      clearSession();
+    }
+
+    if (!response.ok) {
+      const responseBody = await readResponseBody(response);
+      parseApiResponse(
+        response.status,
+        responseBody,
+        response.headers.get("x-request-id"),
+        z.unknown(),
+        response.headers.get("retry-after"),
+      );
+      throw new ApiError(
+        response.status,
+        "INVALID_RESPONSE",
+        "The service returned an unexpected response. Please try again.",
+      );
+    }
+
+    return {
+      blob: await response.blob(),
+      filename: getAttachmentFilename(
+        response.headers.get("content-disposition"),
+        fallbackFilename,
+      ),
+    };
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (controller.signal.aborted) {
+      if (externalSignal?.aborted) {
+        throw new ApiError(0, "REQUEST_ABORTED", "The request was cancelled.");
+      }
+      throw new ApiError(
+        0,
+        "REQUEST_TIMEOUT",
+        "The service took too long to respond. Please try again.",
+      );
+    }
+    if (error instanceof TypeError) {
+      throw new ApiError(
+        0,
+        "NETWORK_ERROR",
+        "Could not reach the service. Check your connection and try again.",
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
+  }
 }
 
 export function apiUpload<T>(
@@ -411,6 +508,25 @@ function parseApiResponse<T>(
 function getRequestUrl(path: string) {
   const baseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "");
   return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function getAttachmentFilename(
+  contentDisposition: string | null,
+  fallbackFilename: string,
+) {
+  const match = contentDisposition?.match(/filename="?([^";]+)"?/i);
+  if (!match) return fallbackFilename;
+  const filename = match[1]
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .split("")
+    .filter((character) => {
+      const codePoint = character.charCodeAt(0);
+      return codePoint >= 32 && codePoint !== 127;
+    })
+    .join("")
+    .replace(/^\.+/, "");
+  return filename || fallbackFilename;
 }
 
 function getStatusMessage(status: number) {

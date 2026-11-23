@@ -2,11 +2,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useSyncExternalStore,
   useState,
   type ReactNode,
 } from "react";
 import { apiRequest } from "../../lib/api-client";
+import { queryClient } from "../../lib/query-client";
 import {
   clearSession,
   getSession,
@@ -28,10 +30,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getSession,
     getSession,
   );
+  const previousAccessToken = useRef(session?.accessToken);
   const [isInitializing, setIsInitializing] = useState(Boolean(session));
   const [initializationError, setInitializationError] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    if (previousAccessToken.current !== session?.accessToken) {
+      queryClient.clear();
+      previousAccessToken.current = session?.accessToken;
+    }
+  }, [session?.accessToken]);
 
   const retrySessionValidation = useCallback(async () => {
     const currentSession = getSession();

@@ -21,6 +21,7 @@ import {
 } from "./requirement.schemas";
 import { RequirementForm } from "./RequirementForm";
 import type { RequirementFormValues } from "./requirement-form.schemas";
+import { ApprovalSubmissionPanel } from "../approvals/ApprovalSubmissionPanel";
 
 interface RequirementDetailsDialogProps {
   open: boolean;
@@ -389,6 +390,13 @@ export function RequirementDetailsDialog({
           <p className="requirement-detail__description">
             {requirement.description || "No description added."}
           </p>
+
+          <ApprovalSubmissionPanel
+            artifactId={requirement.id}
+            artifactType="requirement"
+            projectId={projectId}
+            status={requirement.status}
+          />
 
           <dl className="requirement-detail__metadata">
             <div>

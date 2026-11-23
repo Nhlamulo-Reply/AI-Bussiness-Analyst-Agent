@@ -18,6 +18,7 @@ import { useRequirements } from "../requirements/requirement-queries";
 import { formatProjectDate } from "../projects/format";
 import { useArtifactVersions, usePatchArtifact } from "./artifact-queries";
 import { ArtifactForm } from "./ArtifactForm";
+import { ApprovalSubmissionPanel } from "../approvals/ApprovalSubmissionPanel";
 import {
   artifactSchema,
   type Artifact,
@@ -278,6 +279,13 @@ export function ArtifactDetailsDialog({
               suggestions are not final or certified.
             </p>
           ) : null}
+
+          <ApprovalSubmissionPanel
+            artifactId={currentArtifact.id}
+            artifactType={currentArtifact.type}
+            projectId={currentArtifact.projectId}
+            status={currentArtifact.status}
+          />
 
           <section className="artifact-detail__section">
             <h3>Description</h3>

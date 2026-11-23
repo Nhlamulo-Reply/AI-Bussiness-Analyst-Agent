@@ -15,10 +15,33 @@ The requirements register supports server pagination, current-page search and
 filters, source-document links on creation, requirement details and traceability,
 editable fields supported by the API, and a validated version-history timeline.
 Editing creates a new version and resets the requirement to draft; linked
-document IDs cannot be changed through the current edit endpoint. Deliverable,
-approval, and export features do not display mock business data. The
-deliverables workspace is live; approval and export pages remain placeholders
-until their backend-backed phases are approved.
+document IDs cannot be changed through the current edit endpoint. The
+deliverables and project export workspaces are live. Reviewers and admins can
+load a project-scoped approval queue, inspect the submitted requirement or
+artifact, and record decisions. The backend enforces role, project access, and
+self-review restrictions.
+
+## Implementation phase status
+
+Status reviewed against the current frontend code on 2026-11-23. This is an
+implementation snapshot, not evidence that the approval gates in
+`backend/FRONTEND_IMPLEMENTATION_PLAN.md` were formally granted.
+
+| Phase                             | Status                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Assessment and blueprint       | Documented in the implementation plan and this README.                                                                                                                                                                                                                                                                                                                            |
+| 2. Scaffold and design system     | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
+| 3. Authentication and app shell   | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
+| 4. Dashboard and projects         | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
+| 5. Document library and upload    | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
+| 6. Requirements management        | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
+| 7. AI workflow workbench          | Implemented for all seven backend workflows.                                                                                                                                                                                                                                                                                                                                      |
+| 8. Artifacts and version history  | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
+| 9. Approval UX                    | Implemented: draft requirements and artifacts can be submitted for review; reviewers/admins can list and inspect project approvals and approve, reject, or request changes. The backend enforces reviewer role, project access, pending-only transitions, and no self-review.                                                                                                     |
+| 10. Exports and release readiness | Partially implemented: JSON, Markdown, and CSV downloads are live; routes are code-split; and query caches are cleared when the signed-in token changes. Playwright covers the key authenticated flows with mocked API responses, while axe checks key routes at desktop and mobile widths. Full app-wide accessibility/security review and production hosting validation remain. |
+
+The frontend uses lazy route loading with a shared loading state. In-memory
+query data is cleared when the access token changes or the user signs out.
 
 ## AI workflow workbench
 
@@ -66,6 +89,26 @@ validated before display; unknown snapshot fields remain available in the
 generic inspector. AI-generated artifacts opened from workflow results are
 explicitly labeled as drafts.
 
+## Project exports
+
+The project export page downloads JSON, Markdown, or CSV generated by the
+backend. Downloads use the authenticated API client, do not persist export
+data in browser storage, and exclude uploaded document contents. The backend
+sets the download filename and remains responsible for formatting and
+CSV-safety rules.
+
+## Approval review
+
+The reviewer workspace loads a paginated queue from
+`GET /api/v1/projects/{projectId}/approvals` and reads the selected approval
+with its current requirement or artifact through `GET /api/v1/approvals/{id}`.
+The queue supports pending, approved, rejected, and changes-requested filters.
+Review decisions use `PATCH /api/v1/approvals/{id}`. All three endpoints
+require a reviewer or admin role and access to the project; the backend also
+prevents submitters from deciding their own requests and rejects repeated
+decisions. A decision invalidates the approval, requirement, and artifact
+queries so the queue and resource status refresh.
+
 ## Setup
 
 ```powershell
@@ -82,6 +125,17 @@ For production, route `/api/v1` through a same-origin reverse proxy or set
 URLs, not places for backend secrets. The app shows a configuration message if
 the API base URL is missing or invalid.
 
+## Production frontend deployment
+
+Build the static frontend with `npm run build` and serve `dist/` from a static
+host configured with SPA history fallback. Set `VITE_API_BASE_URL` at build
+time; Vite embeds it into the client bundle. Prefer a same-origin HTTPS reverse
+proxy for `/api/v1`, or use the HTTPS URL of the API directly. The Vite
+`VITE_API_PROXY_TARGET` setting is for local development only. Never put
+backend secrets or provider keys in frontend environment variables. These
+instructions cover the frontend only and make no production-readiness claim
+about backend hosting or storage.
+
 Authentication uses short-lived bearer tokens held in memory only. Reloading or
 closing the page clears the session and requires signing in again. New accounts
 receive the standard user role; elevated roles must be assigned separately.
@@ -92,9 +146,23 @@ browser storage.
 
 ## Quality checks
 
+The Phase 10 browser suite builds the production frontend and tests it through
+Vite's local preview with isolated, mocked API responses; it creates no backend
+records. It covers login, project navigation, document and requirement routes,
+AI workflows, deliverables, export download/auth headers, reviewer approval
+inspection and decisions, profile, keyboard interactions, mobile reflow, and
+nested-route fallback.
+Axe checks WCAG 2 A/AA, WCAG 2.1 A/AA, and WCAG 2.2 AA rules on key screens at
+desktop and 320px widths. The suite uses the installed Google Chrome browser
+channel and serves the preview on port 4174. It does not replace testing against
+a live backend or a full app-wide security/accessibility audit. The test suite
+still emits React `act(...)` warnings. Route splitting reduced the largest
+initial JavaScript entry chunk from about 620 kB to about 360 kB.
+
 ```powershell
 npm run build
 npm run lint
 npm test
 npm run format:check
+npm run test:e2e
 ```

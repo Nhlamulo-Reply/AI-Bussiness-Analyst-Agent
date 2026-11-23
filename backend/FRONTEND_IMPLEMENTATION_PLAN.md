@@ -463,7 +463,9 @@ Show friendly user-facing text; preserve request ID in an expandable “Support 
 | PATCH | `/artifacts/:id` | Bearer | Revise artifact. |
 | GET | `/artifacts/:id/versions?type=` | Bearer | Artifact versions. |
 | POST | `/approvals` | Bearer | Submit draft for review. |
-| PATCH | `/approvals/:id` | Bearer + reviewer/admin | Decide approval. |
+| GET | `/projects/:projectId/approvals?decision=&page=&limit=` | Bearer + reviewer/admin | List project approvals. |
+| GET | `/approvals/:id` | Bearer + reviewer/admin | Read approval and current resource. |
+| PATCH | `/approvals/:id` | Bearer + reviewer/admin | Decide approval; submitter cannot review own request. |
 | PATCH | `/users/:id/roles` | Bearer + admin | Change another user's roles. |
 | GET | `/projects/:id/export?format=` | Bearer | Download project export. |
 
@@ -784,10 +786,12 @@ Tasks:
 1. Implement submission-for-review action on supported draft resources.
 2. Implement review decision controls only where the frontend has a valid approval ID and known record from supported APIs.
 3. Enforce client-side role/self-review guidance while still relying on backend authorization.
-4. Document missing approval list/detail/queue API as a blocker for a complete reviewer inbox.
-5. Do not add fake approval list data or undocumented endpoints.
+4. Load the reviewer queue from the project-scoped approval list endpoint and inspect records through the approval detail endpoint.
+5. Use only the documented approval endpoints; do not fabricate queue records.
 
-**Deliver:** honest, API-conformant approval UI and explicit backend gap report. Stop for approval.
+**Backend support:** `GET /projects/{projectId}/approvals` provides a paginated, decision-filterable queue. `GET /approvals/{id}` returns the approval and its current requirement or artifact. Both are reviewer/admin-only and enforce project access; `PATCH /approvals/{id}` remains responsible for decisions and self-review prevention.
+
+**Deliver:** API-conformant submission and reviewer decision workflows backed by verified approval records. Stop for approval.
 
 ### Phase 10 — Exports, hardening and release readiness
 
@@ -832,7 +836,7 @@ Stop immediately after asking. If the user requests changes, stay in the current
 
 Paste this into Copilot Chat:
 
-> Read `FRONTEND_IMPLEMENTATION_PLAN.md` completely and inspect the current repository, especially the `phaseone` backend implementation and API schemas. Act as a principal frontend engineer and product designer. We are implementing the AI Business Analyst Agent frontend. Follow the specified visual direction, frontend architecture, backend API contracts, privacy/security rules, testing standards and strict phase approval protocol. Start with **Phase 1 only: assessment and blueprint**. Do not scaffold or write application code yet. Verify actual storage pagination and response types directly in source. Identify existing frontend conventions, API gaps (especially approval queue/list APIs), and any OpenAPI drift. Return the Phase 1 completion report and wait for my explicit approval. Do not proceed automatically.
+> Read `FRONTEND_IMPLEMENTATION_PLAN.md` completely and inspect the current repository, especially the `phaseone` backend implementation and API schemas. Act as a principal frontend engineer and product designer. We are implementing the AI Business Analyst Agent frontend. Follow the specified visual direction, frontend architecture, backend API contracts, privacy/security rules, testing standards and strict phase approval protocol. Start with **Phase 1 only: assessment and blueprint**. Do not scaffold or write application code yet. Verify actual storage pagination and response types directly in source. Identify existing frontend conventions, verify the documented approval queue/read endpoints, identify remaining API gaps, and check for OpenAPI drift. Return the Phase 1 completion report and wait for my explicit approval. Do not proceed automatically.
 
 ---
 
