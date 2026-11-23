@@ -1940,6 +1940,51 @@ p {
   margin-top: 22px;
 }
 
+.project-template-field,
+.project-template-guidance {
+  display: grid;
+  gap: 7px;
+  color: #454a60;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.project-template-field label {
+  display: grid;
+  gap: 7px;
+}
+
+.project-template-field select,
+.admin-template-form select,
+.admin-template-form input,
+.admin-template-form textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #dfe1ea;
+  border-radius: 9px;
+  color: #303449;
+  background: #fff;
+  font: inherit;
+}
+
+.project-template-field small,
+.project-template-guidance p {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 1.6;
+}
+
+.project-template-guidance summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.project-template-guidance p {
+  white-space: pre-wrap;
+}
+
 .project-form__actions {
   display: flex;
   justify-content: flex-end;
@@ -2516,6 +2561,20 @@ p {
   margin-top: 3px;
 }
 
+.document-archive-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 0 auto;
+  color: #555b70;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.document-archive-filter input {
+  accent-color: var(--primary);
+}
+
 .document-library__loading {
   display: grid;
   gap: 16px;
@@ -2578,6 +2637,11 @@ p {
   min-width: 0;
   flex: 1;
   gap: 9px;
+}
+
+.document-card > .button {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .document-card__title-row {
@@ -2650,6 +2714,177 @@ p {
   color: var(--muted);
   font-size: 9px;
   line-height: 1.6;
+}
+
+.admin-page {
+  display: grid;
+  gap: 24px;
+}
+
+.admin-section {
+  display: grid;
+  min-width: 0;
+  gap: 13px;
+}
+
+.admin-section__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.admin-section__heading h2,
+.admin-bootstrap-card h2 {
+  margin: 0;
+  color: #303449;
+  font-size: 16px;
+}
+
+.admin-section__heading p,
+.admin-bootstrap-card > p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.admin-user-email {
+  overflow-wrap: anywhere;
+}
+
+.admin-role-editor {
+  display: grid;
+  min-width: 180px;
+  gap: 8px;
+}
+
+.admin-role-editor fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.admin-role-editor label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #555b70;
+  font-size: 10px;
+}
+
+.admin-role-editor input,
+.admin-bootstrap-form input {
+  accent-color: var(--primary);
+}
+
+.admin-bootstrap-card {
+  display: grid;
+  max-width: 560px;
+  gap: 12px;
+  padding: 22px;
+}
+
+.admin-bootstrap-form {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.admin-bootstrap-form label {
+  color: #454a60;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.admin-bootstrap-form input {
+  width: min(100%, 390px);
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #dfe1ea;
+  border-radius: 9px;
+  color: #303449;
+  background: #fff;
+}
+
+.admin-success,
+.admin-inline-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.admin-success {
+  color: #23734c;
+}
+
+.admin-inline-error {
+  color: #a53d43;
+}
+
+.admin-section .data-table {
+  min-width: 720px;
+}
+
+.admin-template-form-card {
+  padding: 18px;
+}
+
+.admin-template-form {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-template-form h3 {
+  margin: 0;
+  color: #303449;
+  font-size: 13px;
+}
+
+.admin-template-form label {
+  display: grid;
+  gap: 6px;
+  color: #454a60;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.admin-template-form textarea {
+  resize: vertical;
+  font-weight: 450;
+}
+
+.admin-template-form__actions,
+.admin-template-actions,
+.admin-audit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-role-editor .button {
+  justify-self: start;
+}
+
+.document-archive-dialog {
+  display: grid;
+  gap: 20px;
+}
+
+.document-archive-dialog > p {
+  margin: 0;
+  color: #555b70;
+  line-height: 1.6;
+}
+
+.document-archive-dialog .dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
 }
 
 .project-detail-loading,
@@ -5189,13 +5424,51 @@ p {
   line-height: 1.65;
 }
 
+.workflow-context-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 9px;
+  padding: 10px 12px;
+  border: 1px solid #e8e9f0;
+  border-radius: 9px;
+  color: #34364d;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.workflow-context-option--selected {
+  border-color: #aaa1ec;
+  background: #faf9ff;
+}
+
+.workflow-context-option input {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+
+.workflow-context-option > span {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-context-option > span > span {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 .workflow-validation-note {
   padding: 10px 12px;
 }
 
 .workflow-document-list,
 .workflow-requirement-list,
-.workflow-story-list {
+.workflow-story-list,
+.workflow-template-list {
   display: grid;
   max-height: 360px;
   gap: 7px;
@@ -5205,7 +5478,8 @@ p {
 
 .workflow-document-option,
 .workflow-requirement-option,
-.workflow-story-option {
+.workflow-story-option,
+.workflow-template-option {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -5223,7 +5497,8 @@ p {
 
 .workflow-document-option:hover,
 .workflow-requirement-option:hover,
-.workflow-story-option:hover {
+.workflow-story-option:hover,
+.workflow-template-option:hover {
   border-color: #c9c4f1;
   background: #fcfbff;
 }
@@ -5239,6 +5514,7 @@ p {
 .workflow-document-option input,
 .workflow-requirement-option input,
 .workflow-story-option input,
+.workflow-template-option input,
 .workflow-privacy-check input {
   width: 15px;
   height: 15px;
@@ -5248,7 +5524,8 @@ p {
 
 .workflow-document-option__file,
 .workflow-requirement-option__copy,
-.workflow-story-option > span:first-of-type {
+.workflow-story-option > span:first-of-type,
+.workflow-template-option > span {
   display: grid;
   min-width: 0;
   flex: 1 1 auto;
@@ -5257,7 +5534,8 @@ p {
 
 .workflow-document-option__file strong,
 .workflow-requirement-option__copy strong,
-.workflow-story-option > span:first-of-type strong {
+.workflow-story-option > span:first-of-type strong,
+.workflow-template-option > span strong {
   overflow: hidden;
   color: #34364d;
   font-size: 10px;
@@ -5268,7 +5546,8 @@ p {
 
 .workflow-document-option__file > span,
 .workflow-requirement-option__copy > span,
-.workflow-story-option > span:first-of-type > span {
+.workflow-story-option > span:first-of-type > span,
+.workflow-template-option > span > span {
   display: -webkit-box;
   overflow: hidden;
   color: var(--muted);

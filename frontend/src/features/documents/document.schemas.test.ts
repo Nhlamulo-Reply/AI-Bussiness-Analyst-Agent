@@ -69,6 +69,30 @@ describe("document metadata and upload validation", () => {
     ).toBe(false);
   });
 
+  it("requires complete archive metadata only for archived documents", () => {
+    const archivedDocument = {
+      ...document,
+      status: "archived",
+      archivedAt: "2026-03-05T05:06:07.000Z",
+      archivedByUserId: "user-1",
+    };
+    expect(documentMetadataSchema.parse(archivedDocument)).toEqual(
+      archivedDocument,
+    );
+    expect(
+      documentMetadataSchema.safeParse({
+        ...archivedDocument,
+        archivedByUserId: undefined,
+      }).success,
+    ).toBe(false);
+    expect(
+      documentMetadataSchema.safeParse({
+        ...document,
+        archivedByUserId: "user-1",
+      }).success,
+    ).toBe(false);
+  });
+
   it("formats file metadata for the library", () => {
     expect(getDocumentTypeLabel("application/pdf")).toBe("PDF");
     expect(formatFileSize(1024)).toBe("1 KB");

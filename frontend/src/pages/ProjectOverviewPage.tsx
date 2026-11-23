@@ -18,9 +18,11 @@ import { Card } from "../components/ui/Card";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { ProjectBriefEditor } from "../components/projects/ProjectBriefEditor";
 import { useAuth } from "../features/auth/useAuth";
 import { formatProjectDate } from "../features/projects/format";
 import { useProject } from "../features/projects/project-queries";
+import { getProjectSummary } from "../features/projects/project.schemas";
 import { getApiErrorPresentation } from "../lib/api-client";
 
 export function ProjectOverviewPage() {
@@ -129,7 +131,7 @@ export function ProjectOverviewPage() {
           <p className="eyebrow">PROJECT WORKSPACE</p>
           <h1 id="project-title">{project.name}</h1>
           <p>
-            {project.description ||
+            {getProjectSummary(project) ||
               "This project is ready for its first source and next steps."}
           </p>
         </div>
@@ -168,6 +170,31 @@ export function ProjectOverviewPage() {
         </Card>
       </div>
 
+      <section
+        aria-labelledby="project-context-title"
+        className="project-overview__section-heading"
+      >
+        <div>
+          <p className="eyebrow">PROJECT BRIEF</p>
+          <h2 id="project-context-title">Context and expectations</h2>
+        </div>
+      </section>
+      <div className="project-overview__facts project-overview__facts--context">
+        <ContextFact
+          label="Business objective"
+          value={project.businessObjective}
+        />
+        <ContextFact label="In scope" value={project.inScope} />
+        <ContextFact label="Out of scope" value={project.outOfScope} />
+        <ContextListFact label="Stakeholders" values={project.stakeholders} />
+        <ContextListFact label="Constraints" values={project.constraints} />
+        <ContextListFact
+          label="Desired outputs"
+          values={project.desiredOutputs}
+        />
+      </div>
+      <ProjectBriefEditor project={project} canEdit={isOwner} />
+
       <div className="project-overview__section-heading">
         <div>
           <p className="eyebrow">A CLEAR PATH THROUGH THE WORK</p>
@@ -196,11 +223,42 @@ export function ProjectOverviewPage() {
           </Link>
         ))}
       </div>
-
-      <p className="project-overview__note">
-        Project details are read-only here. Changes to project settings are not
-        available through the current API.
-      </p>
     </section>
+  );
+}
+
+function ContextFact({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="project-fact project-fact--context">
+      <span>
+        <small>{label}</small>
+        <strong>{value || "Not specified"}</strong>
+      </span>
+    </Card>
+  );
+}
+
+function ContextListFact({
+  label,
+  values,
+}: {
+  label: string;
+  values: string[];
+}) {
+  return (
+    <Card className="project-fact project-fact--context">
+      <span>
+        <small>{label}</small>
+        {values.length > 0 ? (
+          <ul>
+            {values.map((value) => (
+              <li key={value}>{value}</li>
+            ))}
+          </ul>
+        ) : (
+          <strong>Not specified</strong>
+        )}
+      </span>
+    </Card>
   );
 }

@@ -3,15 +3,16 @@ import { z } from "zod";
 import { ArtifactReviewConflictError, type Storage } from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
 import { authenticate } from "../../common/middleware/authentication";
+import { requirePermission } from "../../common/middleware/authorization";
 import { getAuthenticatedUser, getRouteParam } from "../../common/middleware/current-user";
 import { validateBody } from "../../common/middleware/validation";
 import { artifactTypes, patchArtifactBodySchema } from "../domain/domain.schemas";
 
 export function createArtifactRouter(storage: Storage, jwtSecret: string): Router {
   const router = Router();
-  router.use(authenticate(jwtSecret));
+  router.use(authenticate(jwtSecret, storage));
 
-  router.patch("/:id", validateBody(patchArtifactBodySchema), async (request, response, next) => {
+  router.patch("/:id", requirePermission("analysis.prepare"), validateBody(patchArtifactBodySchema), async (request, response, next) => {
     try {
       const user = getAuthenticatedUser(request);
       const artifactId = getRouteParam(request, "id");

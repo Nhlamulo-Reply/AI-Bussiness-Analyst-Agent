@@ -50,6 +50,8 @@ const typeLabels: Record<ArtifactType, string> = {
 
 const statusLabels: Record<ArtifactStatus, string> = {
   draft: "Draft",
+  submitted: "Submitted",
+  changes_requested: "Changes requested",
   reviewed: "Reviewed",
   approved: "Approved",
   rejected: "Rejected",

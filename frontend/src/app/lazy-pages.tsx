@@ -6,6 +6,21 @@ export const AuthPage = lazy(() =>
     default: module.AuthPage,
   })),
 );
+export const ForgotPasswordPage = lazy(() =>
+  import("../pages/ForgotPasswordPage").then((module) => ({
+    default: module.ForgotPasswordPage,
+  })),
+);
+export const ResetPasswordPage = lazy(() =>
+  import("../pages/ResetPasswordPage").then((module) => ({
+    default: module.ResetPasswordPage,
+  })),
+);
+export const GoogleCallbackPage = lazy(() =>
+  import("../pages/GoogleCallbackPage").then((module) => ({
+    default: module.GoogleCallbackPage,
+  })),
+);
 export const NotFoundPage = lazy(() =>
   import("../pages/NotFoundPage").then((module) => ({
     default: module.NotFoundPage,
@@ -64,6 +79,11 @@ export const ArtifactWorkspaceRoute = lazy(() =>
 export const ApprovalWorkspacePage = lazy(() =>
   import("../pages/ApprovalWorkspacePage").then((module) => ({
     default: module.ApprovalWorkspacePage,
+  })),
+);
+export const AdminPage = lazy(() =>
+  import("../pages/AdminPage").then((module) => ({
+    default: module.AdminPage,
   })),
 );
 export const ProjectExportRoute = lazy(() =>

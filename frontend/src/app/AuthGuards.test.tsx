@@ -9,7 +9,7 @@ import { RequireAuth, RequireRole } from "./AuthGuards";
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 function GuardTestApp({ initialEntry }: { initialEntry: string }) {
@@ -23,7 +23,7 @@ function GuardTestApp({ initialEntry }: { initialEntry: string }) {
             path="/app/projects/:projectId/approvals"
             element={
               <RequireAuth>
-                <RequireRole roles={["reviewer", "admin"]}>
+                <RequireRole roles={["product_owner", "admin"]}>
                   <p>Approval workspace</p>
                 </RequireRole>
               </RequireAuth>
@@ -53,7 +53,7 @@ describe("authentication route guards", () => {
     expect(await screen.findByText("Sign-in page")).toBeInTheDocument();
   });
 
-  it("shows a clear forbidden state for an authenticated non-reviewer", async () => {
+  it("shows a clear forbidden state for an authenticated non-Product-Owner", async () => {
     setSession({ accessToken: "user-token", user });
     vi.stubGlobal(
       "fetch",
@@ -73,15 +73,15 @@ describe("authentication route guards", () => {
     ).toBeInTheDocument();
   });
 
-  it("allows an authenticated reviewer to enter the restricted route", async () => {
-    const reviewer: AuthUser = { ...user, roles: ["reviewer"] };
-    setSession({ accessToken: "reviewer-token", user: reviewer });
+  it("allows an authenticated Product Owner to enter the restricted route", async () => {
+    const productOwner: AuthUser = { ...user, roles: ["product_owner"] };
+    setSession({ accessToken: "product-owner-token", user: productOwner });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         Response.json({
           success: true,
-          data: { user: reviewer },
+          data: { user: productOwner },
           requestId: "request-6",
         }),
       ),

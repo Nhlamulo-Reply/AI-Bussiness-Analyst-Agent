@@ -5,12 +5,42 @@ import {
   type DocumentMetadata,
 } from "./document.schemas";
 
-export function listProjectDocuments(projectId: string, signal?: AbortSignal) {
-  return apiRequest(`/projects/${encodeURIComponent(projectId)}/documents`, {
-    auth: "required",
-    schema: documentListSchema,
-    signal,
-  });
+export function listProjectDocuments(
+  projectId: string,
+  includeArchived = false,
+  signal?: AbortSignal,
+) {
+  const search = includeArchived ? "?includeArchived=true" : "";
+  return apiRequest(
+    `/projects/${encodeURIComponent(projectId)}/documents${search}`,
+    {
+      auth: "required",
+      schema: documentListSchema,
+      signal,
+    },
+  );
+}
+
+export function archiveProjectDocument(projectId: string, documentId: string) {
+  return apiRequest(
+    `/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/archive`,
+    {
+      method: "PATCH",
+      auth: "required",
+      schema: documentMetadataSchema,
+    },
+  );
+}
+
+export function restoreProjectDocument(projectId: string, documentId: string) {
+  return apiRequest(
+    `/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/restore`,
+    {
+      method: "PATCH",
+      auth: "required",
+      schema: documentMetadataSchema,
+    },
+  );
 }
 
 export function uploadProjectDocument(

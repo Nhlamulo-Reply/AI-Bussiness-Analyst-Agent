@@ -23,10 +23,28 @@ export const documentMetadataSchema = z
     fileName: z.string().min(1).max(255),
     mimeType: documentMimeTypeSchema,
     sizeBytes: z.number().int().positive(),
-    status: z.literal("uploaded"),
+    status: z.enum(["uploaded", "archived"]),
+    archivedAt: timestampSchema.optional(),
+    archivedByUserId: z.string().min(1).optional(),
     createdAt: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((document, context) => {
+    const isArchived = document.status === "archived";
+    const hasArchiveAt = document.archivedAt !== undefined;
+    const hasArchiveActor = document.archivedByUserId !== undefined;
+    if (
+      (isArchived && !(hasArchiveAt && hasArchiveActor)) ||
+      (!isArchived && (hasArchiveAt || hasArchiveActor))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["archivedAt"],
+        message:
+          "Archived documents require archive metadata and active documents must not retain it.",
+      });
+    }
+  });
 
 export const documentListSchema = z.array(documentMetadataSchema);
 

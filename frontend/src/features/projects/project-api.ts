@@ -39,3 +39,12 @@ export function createProject(input: CreateProjectInput) {
     schema: projectSchema,
   });
 }
+
+export function updateProject(projectId: string, input: CreateProjectInput) {
+  return apiRequest(`/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    auth: "required",
+    json: input,
+    schema: projectSchema,
+  });
+}

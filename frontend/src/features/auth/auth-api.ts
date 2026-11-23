@@ -5,6 +5,7 @@ import {
   currentUserResponseSchema,
   type AuthSession,
   type Credentials,
+  passwordResetResponseSchema,
 } from "./auth.schemas";
 
 export async function authenticateUser(
@@ -29,4 +30,24 @@ export async function authenticateUser(
   };
   setSession(session);
   return session;
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiRequest("/auth/password-reset/request", {
+    method: "POST",
+    json: { email },
+    schema: passwordResetResponseSchema,
+  });
+}
+
+export async function confirmPasswordReset(
+  token: string,
+  password: string,
+  confirmPassword: string,
+): Promise<void> {
+  await apiRequest("/auth/password-reset/confirm", {
+    method: "POST",
+    json: { token, password, confirmPassword },
+    schema: passwordResetResponseSchema,
+  });
 }

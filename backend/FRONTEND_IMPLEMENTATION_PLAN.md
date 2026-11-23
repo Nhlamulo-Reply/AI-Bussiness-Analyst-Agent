@@ -488,7 +488,11 @@ Show friendly user-facing text; preserve request ID in an expandable “Support 
 Create typed interfaces from the backend source schemas. The following are core shapes; re-check source files before implementation and keep fields optional only where backend schemas mark them optional.
 
 ```ts
-type UserRole = "user" | "reviewer" | "admin" | "project_owner";
+type UserRole =
+  | "business_analyst"
+  | "product_owner"
+  | "delivery_lead"
+  | "admin";
 type ProjectStatus = "active" | "archived";
 type RequirementType = "business" | "functional" | "non_functional";
 type Priority = "low" | "medium" | "high" | "critical";

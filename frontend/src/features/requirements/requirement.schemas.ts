@@ -26,6 +26,7 @@ export const requirementSchema = z
     type: requirementTypeSchema,
     status: requirementStatusSchema,
     priority: requirementPrioritySchema,
+    confidence: z.number().min(0).max(1).optional(),
     sourceFacts: requirementStringListSchema,
     assumptions: requirementStringListSchema,
     openQuestions: requirementStringListSchema,
@@ -43,6 +44,8 @@ export const requirementSchema = z
           )
           .max(100)
           .optional(),
+        projectDescription: z.boolean().optional(),
+        projectContext: z.boolean().optional(),
         executionId: z.string().min(1).optional(),
       })
       .strict(),

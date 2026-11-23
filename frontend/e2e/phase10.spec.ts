@@ -4,7 +4,7 @@ import axe from "axe-core";
 const user = {
   id: "e2e-user",
   email: "analyst@example.test",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 const project = {
@@ -378,7 +378,7 @@ test("profile screen is accessible in desktop and mobile layouts", async ({
 test("reviewers can inspect and decide a pending approval", async ({
   page,
 }) => {
-  const reviewer = { ...user, roles: ["reviewer"] };
+  const reviewer = { ...user, roles: ["product_owner"] };
   const approval = {
     id: "approval-e2e",
     projectId: project.id,

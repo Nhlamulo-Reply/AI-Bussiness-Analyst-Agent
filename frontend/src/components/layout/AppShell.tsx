@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   ShieldCheck,
+  Settings,
   Sparkles,
   UserRound,
   Workflow,
@@ -27,28 +28,34 @@ import { getRoleLabel } from "../../features/auth/role-label";
 import { Badge } from "../ui/Badge";
 import { Dialog } from "../ui/Dialog";
 import { IconButton } from "../ui/IconButton";
+import { hasPermission } from "../../features/auth/permissions";
+import type { Permission } from "../../features/auth/permissions";
 
 const workspaceLinks = [
   { label: "Overview", to: "/app", icon: LayoutDashboard, end: true },
   { label: "Projects", to: "/app/projects", icon: BriefcaseBusiness },
 ];
 
-const projectLinks = [
-  { label: "Overview", suffix: "", icon: LayoutDashboard, end: true },
-  { label: "Documents", suffix: "/documents", icon: Files },
-  { label: "Requirements", suffix: "/requirements", icon: Layers3 },
-  { label: "AI workflows", suffix: "/workflows", icon: Workflow },
-  { label: "Deliverables", suffix: "/artifacts", icon: Sparkles },
-  { label: "Approvals", suffix: "/approvals", icon: ShieldCheck },
-  { label: "Exports", suffix: "/exports", icon: ArrowUpRight },
+const projectLinks: Array<{
+  label: string;
+  suffix: string;
+  icon: typeof LayoutDashboard;
+  end?: boolean;
+  permission: Permission | null;
+}> = [
+  { label: "Overview", suffix: "", icon: LayoutDashboard, end: true, permission: null },
+  { label: "Documents", suffix: "/documents", icon: Files, permission: "project.read" },
+  { label: "Requirements", suffix: "/requirements", icon: Layers3, permission: "project.read" },
+  { label: "AI workflows", suffix: "/workflows", icon: Workflow, permission: "analysis.prepare" },
+  { label: "Deliverables", suffix: "/artifacts", icon: Sparkles, permission: "project.read" },
+  { label: "Approvals", suffix: "/approvals", icon: ShieldCheck, permission: "approval.decide_business" },
+  { label: "Exports", suffix: "/exports", icon: ArrowUpRight, permission: "project.read" },
 ];
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { projectId } = useParams();
   const { session } = useAuth();
-  const canReview = session?.user.roles.some((role) =>
-    ["reviewer", "admin"].includes(role),
-  );
+  const isAdmin = hasPermission(session?.user.roles, "admin.users");
 
   return (
     <nav aria-label="Main navigation" className="sidebar__navigation">
@@ -67,6 +74,18 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           <span>{label}</span>
         </NavLink>
       ))}
+      {isAdmin ? (
+        <NavLink
+          className={({ isActive }) =>
+            `nav-link ${isActive ? "nav-link--active" : ""}`
+          }
+          onClick={onNavigate}
+          to="/app/admin"
+        >
+          <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
+          <span>Administration</span>
+        </NavLink>
+      ) : null}
 
       {projectId ? (
         <>
@@ -74,7 +93,10 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             Current project
           </p>
           {projectLinks
-            .filter(({ label }) => label !== "Approvals" || canReview)
+            .filter(({ permission }) =>
+              permission === null ||
+              hasPermission(session?.user.roles, permission),
+            )
             .map(({ label, suffix, icon: Icon, end }) => (
               <NavLink
                 className={({ isActive }) =>
@@ -244,6 +266,7 @@ function getPageTitle(pathname: string) {
   if (pathname.endsWith("/approvals")) return "Approvals";
   if (pathname.endsWith("/exports")) return "Exports";
   if (pathname === "/app/profile") return "Profile";
+  if (pathname === "/app/admin") return "Administration";
   if (pathname.endsWith("/new")) return "Create project";
   if (/^\/app\/projects\/[^/]+$/.test(pathname)) return "Project overview";
   return "Workspace";

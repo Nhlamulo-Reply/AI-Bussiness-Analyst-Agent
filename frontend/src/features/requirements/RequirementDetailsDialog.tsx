@@ -385,6 +385,11 @@ export function RequirementDetailsDialog({
             <Badge tone="accent">{typeLabels[requirement.type]}</Badge>
             <Badge>{priorityLabels[requirement.priority]} priority</Badge>
             <Badge>Version {requirement.version}</Badge>
+            {requirement.confidence !== undefined ? (
+              <Badge title="Model-reported estimate; not a calibrated probability.">
+                Model confidence {Math.round(requirement.confidence * 100)}%
+              </Badge>
+            ) : null}
           </div>
 
           <p className="requirement-detail__description">
@@ -448,6 +453,12 @@ export function RequirementDetailsDialog({
               <FileText aria-hidden="true" size={16} />
               <h3>Traceability</h3>
             </div>
+            {requirement.traceability.projectContext ||
+            requirement.traceability.projectDescription ? (
+              <p className="requirement-detail-section__reference">
+                The project brief was included as source context.
+              </p>
+            ) : null}
             {requirement.traceability.documentIds.length ? (
               <LinkedDocuments
                 documentIds={requirement.traceability.documentIds}

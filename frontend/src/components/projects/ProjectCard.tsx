@@ -7,6 +7,7 @@ import {
   getProjectPath,
 } from "../../features/projects/format";
 import type { Project } from "../../features/projects/project.schemas";
+import { getProjectSummary } from "../../features/projects/project.schemas";
 
 interface ProjectCardProps {
   project: Project;
@@ -33,7 +34,7 @@ export function ProjectCard({ project, compact = false }: ProjectCardProps) {
           </StatusBadge>
         </div>
         <h2>{project.name}</h2>
-        <p>{project.description || "No project description has been added."}</p>
+        <p>{getProjectSummary(project)}</p>
       </Link>
       <div className="project-card__footer">
         <div className="project-card__dates">

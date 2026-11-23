@@ -24,6 +24,10 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { useAuth } from "../features/auth/useAuth";
+import { useAvailableTemplates } from "../features/admin/admin-queries";
+import type { TemplateType } from "../features/admin/admin.schemas";
+import { useProject } from "../features/projects/project-queries";
+import { hasProjectContext } from "../features/projects/project.schemas";
 import {
   formatFileSize,
   getDocumentTypeLabel,
@@ -64,6 +68,16 @@ interface PendingRun {
   workflowName: WorkflowName;
   input: WorkflowJob;
 }
+
+const templateTypeByWorkflow: Record<WorkflowName, TemplateType> = {
+  "requirements-analysis": "requirements",
+  "requirements-extraction": "requirements",
+  "story-generation": "epics_stories",
+  "acceptance-criteria-generation": "acceptance_criteria",
+  "requirements-validation": "requirements",
+  "risk-analysis": "risks_roadmaps",
+  "roadmap-generation": "risks_roadmaps",
+};
 
 const workflows: WorkflowDefinition[] = [
   {
@@ -142,6 +156,9 @@ const formatSize = (sizeBytes: number) => formatFileSize(sizeBytes);
 
 function getRunUnavailableReason({
   workflow,
+  projectLoading,
+  projectError,
+  projectContextAvailable,
   documentsLoading,
   requirementsLoading,
   artifactsLoading,
@@ -150,6 +167,7 @@ function getRunUnavailableReason({
   artifactsError,
   documentCount,
   selectedDocumentIds,
+  useProjectDescriptionOnly,
   requirementCount,
   selectedRequirementIds,
   storyCount,
@@ -158,6 +176,9 @@ function getRunUnavailableReason({
   contextLimitReached,
 }: {
   workflow: WorkflowDefinition | null;
+  projectLoading: boolean;
+  projectError: boolean;
+  projectContextAvailable: boolean;
   documentsLoading: boolean;
   requirementsLoading: boolean;
   artifactsLoading: boolean;
@@ -166,6 +187,7 @@ function getRunUnavailableReason({
   artifactsError: boolean;
   documentCount: number;
   selectedDocumentIds: string[];
+  useProjectDescriptionOnly: boolean;
   requirementCount: number;
   selectedRequirementIds: string[];
   storyCount: number;
@@ -175,16 +197,22 @@ function getRunUnavailableReason({
 }) {
   if (!workflow) return "Choose a workflow to configure its inputs.";
   if (
+    (workflow.context === "documents" && projectLoading) ||
     requirementsLoading ||
     artifactsLoading ||
-    (workflow.context === "documents" && documentsLoading)
+    (workflow.context === "documents" &&
+      !useProjectDescriptionOnly &&
+      documentsLoading)
   ) {
     return "Loading project context…";
   }
   if (
+    (workflow.context === "documents" && projectError) ||
     requirementsError ||
     artifactsError ||
-    (workflow.context === "documents" && documentsError)
+    (workflow.context === "documents" &&
+      !useProjectDescriptionOnly &&
+      documentsError)
   ) {
     return "Resolve the project context loading issue before starting a run.";
   }
@@ -193,11 +221,16 @@ function getRunUnavailableReason({
   }
 
   if (workflow.context === "documents") {
-    if (documentCount === 0) return "Upload a source document first.";
-    if (selectedDocumentIds.length === 0) {
+    if (useProjectDescriptionOnly && !projectContextAvailable) {
+      return "Add project context or choose source documents.";
+    }
+    if (!useProjectDescriptionOnly && documentCount === 0) {
+      return "Choose project-description-only analysis or upload a source document.";
+    }
+    if (!useProjectDescriptionOnly && selectedDocumentIds.length === 0) {
       return "Select at least one source document.";
     }
-    if (selectedDocumentIds.length > 10) {
+    if (!useProjectDescriptionOnly && selectedDocumentIds.length > 10) {
       return "Select no more than ten source documents.";
     }
   }
@@ -233,6 +266,7 @@ export function WorkflowWorkbenchPage() {
   const { session } = useAuth();
   const userId = session?.user.id;
   const queryClient = useQueryClient();
+  const projectQuery = useProject(projectId);
   const documentsQuery = useProjectDocuments(projectId);
   const requirementsQuery = useRequirements(projectId, 1, 100);
   const artifactsQuery = useWorkflowArtifacts(projectId);
@@ -244,9 +278,12 @@ export function WorkflowWorkbenchPage() {
   const [selectedWorkflowName, setSelectedWorkflowName] =
     useState<WorkflowName | null>(null);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
+  const [useProjectDescriptionOnly, setUseProjectDescriptionOnly] =
+    useState(false);
   const [selectedRequirementIds, setSelectedRequirementIds] = useState<
     string[]
   >([]);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [selectedStoryId, setSelectedStoryId] = useState("");
   const [runs, setRuns] = useState<Execution[]>([]);
   const [pendingRun, setPendingRun] = useState<PendingRun | null>(null);
@@ -256,6 +293,10 @@ export function WorkflowWorkbenchPage() {
   const submitGuard = useRef(false);
   const currentWorkflow =
     workflows.find(({ name }) => name === selectedWorkflowName) ?? null;
+  const workflowTemplateType = currentWorkflow
+    ? getWorkflowTemplateType(currentWorkflow.name)
+    : undefined;
+  const templatesQuery = useAvailableTemplates(workflowTemplateType);
   const artifactCount = artifactsQuery.data?.total ?? 0;
   const requirementCount = requirementsQuery.data?.total ?? 0;
   const documentCount = documents.length;
@@ -263,6 +304,11 @@ export function WorkflowWorkbenchPage() {
 
   const unavailableReason = getRunUnavailableReason({
     workflow: currentWorkflow,
+    projectLoading: projectQuery.isPending,
+    projectError: projectQuery.isError,
+    projectContextAvailable: projectQuery.data
+      ? hasProjectContext(projectQuery.data)
+      : false,
     documentsLoading: documentsQuery.isPending,
     requirementsLoading: requirementsQuery.isPending,
     artifactsLoading: artifactsQuery.isPending,
@@ -271,6 +317,7 @@ export function WorkflowWorkbenchPage() {
     artifactsError: artifactsQuery.isError,
     documentCount,
     selectedDocumentIds,
+    useProjectDescriptionOnly,
     requirementCount,
     selectedRequirementIds,
     storyCount: stories.length,
@@ -278,8 +325,9 @@ export function WorkflowWorkbenchPage() {
     artifactCount,
     contextLimitReached,
   });
-  const requiresDocumentConfirmation =
-    pendingRun !== null && pendingRun.input.documentIds !== undefined;
+  const requiresDocumentConfirmation = Boolean(
+    pendingRun?.input.documentIds?.length,
+  );
   const submitError = getApiErrorPresentation(
     submitMutation.error,
     "The workflow couldn't be started. Please review the project context.",
@@ -300,20 +348,40 @@ export function WorkflowWorkbenchPage() {
     );
   };
 
+  const toggleTemplate = (templateId: string, checked: boolean) => {
+    setSelectedTemplateIds((current) => {
+      if (checked) {
+        return current.includes(templateId)
+          ? current
+          : [...current, templateId];
+      }
+      return current.filter((id) => id !== templateId);
+    });
+  };
+
   const selectWorkflow = (workflow: WorkflowDefinition) => {
     submitMutation.reset();
     setSelectionError(undefined);
     setSelectedWorkflowName(workflow.name);
     setSelectedDocumentIds([]);
+    setUseProjectDescriptionOnly(
+      workflow.context === "documents" &&
+        documents.length === 0 &&
+        Boolean(projectQuery.data && hasProjectContext(projectQuery.data)),
+    );
     setSelectedRequirementIds([]);
     setSelectedStoryId("");
+    setSelectedTemplateIds([]);
   };
 
   const openConfirmation = () => {
     if (!currentWorkflow || unavailableReason) return;
     const input: WorkflowJob = { projectId };
     if (currentWorkflow.context === "documents") {
-      input.documentIds = selectedDocumentIds;
+      input.documentIds = useProjectDescriptionOnly ? [] : selectedDocumentIds;
+      if (input.documentIds.length > 0) {
+        input.shareDocumentContent = true;
+      }
     } else if (currentWorkflow.context === "requirements") {
       input.requirementIds = selectedRequirementIds;
     } else if (currentWorkflow.context === "validation") {
@@ -322,6 +390,9 @@ export function WorkflowWorkbenchPage() {
       }
     } else if (currentWorkflow.context === "story") {
       input.storyId = selectedStoryId;
+    }
+    if (selectedTemplateIds.length > 0) {
+      input.templateIds = selectedTemplateIds;
     }
 
     const parsedInput = workflowJobSchema.safeParse(input);
@@ -471,6 +542,13 @@ export function WorkflowWorkbenchPage() {
           title="Documents couldn't be loaded"
         />
       ) : null}
+      {projectQuery.isError ? (
+        <ContextError
+          error={projectQuery.error}
+          onRetry={() => void projectQuery.refetch()}
+          title="Project details couldn't be loaded"
+        />
+      ) : null}
       {requirementsQuery.isError ? (
         <ContextError
           error={requirementsQuery.error}
@@ -554,86 +632,137 @@ export function WorkflowWorkbenchPage() {
 
           <div
             aria-busy={
+              projectQuery.isPending ||
               documentsQuery.isPending ||
               requirementsQuery.isPending ||
-              artifactsQuery.isPending
+              artifactsQuery.isPending ||
+              templatesQuery.isPending
             }
             className="workflow-config__body"
           >
             {currentWorkflow.context === "documents" ? (
-              documents.length > 0 ? (
+              <>
                 <fieldset className="workflow-selection">
-                  <legend>
-                    Select source documents{" "}
-                    <span>{selectedDocumentIds.length} of 10 selected</span>
-                  </legend>
-                  <p className="workflow-selection__hint">
-                    Only selected documents are shared as document text. Choose
-                    up to ten; project requirements and artifacts may also be
-                    sent to the configured AI provider.
-                  </p>
-                  <div className="workflow-document-list">
-                    {documents.map((document) => {
-                      const checked = selectedDocumentIds.includes(document.id);
-                      const limitReached =
-                        selectedDocumentIds.length >= 10 && !checked;
-                      return (
-                        <label
-                          className={`workflow-document-option${checked ? " workflow-document-option--selected" : ""}`}
-                          htmlFor={`workflow-document-${document.id}`}
-                          key={document.id}
-                        >
-                          <input
-                            checked={checked}
-                            disabled={limitReached}
-                            id={`workflow-document-${document.id}`}
-                            onChange={(event) =>
-                              toggleDocument(
-                                document.id,
-                                event.currentTarget.checked,
-                              )
-                            }
-                            type="checkbox"
-                          />
-                          <span className="workflow-document-option__file">
-                            <strong>{document.fileName}</strong>
-                            <span>
-                              {getDocumentTypeLabel(document.mimeType)} ·{" "}
-                              {formatSize(document.sizeBytes)}
-                            </span>
-                          </span>
-                          {checked ? (
-                            <CheckCircle2
-                              aria-hidden="true"
-                              className="workflow-document-option__check"
-                              size={17}
-                            />
-                          ) : null}
-                        </label>
-                      );
-                    })}
-                  </div>
+                  <legend>Choose source context</legend>
+                  <label
+                    className={`workflow-context-option${useProjectDescriptionOnly ? " workflow-context-option--selected" : ""}`}
+                  >
+                    <input
+                      checked={useProjectDescriptionOnly}
+                      disabled={
+                        !projectQuery.data ||
+                        !hasProjectContext(projectQuery.data)
+                      }
+                      name="workflow-source-context"
+                      onChange={() => {
+                        setUseProjectDescriptionOnly(true);
+                        setSelectedDocumentIds([]);
+                      }}
+                      type="radio"
+                    />
+                    <span>
+                      <strong>Use project context only</strong>
+                      <span>
+                        Do not send document text. The project brief and
+                        existing project records may be used.
+                      </span>
+                    </span>
+                  </label>
+                  <label
+                    className={`workflow-context-option${!useProjectDescriptionOnly ? " workflow-context-option--selected" : ""}`}
+                  >
+                    <input
+                      checked={!useProjectDescriptionOnly}
+                      name="workflow-source-context"
+                      onChange={() => setUseProjectDescriptionOnly(false)}
+                      type="radio"
+                    />
+                    <span>
+                      <strong>Use selected source documents</strong>
+                      <span>
+                        Document text is sent only after you confirm sharing.
+                      </span>
+                    </span>
+                  </label>
                 </fieldset>
-              ) : documentsQuery.isPending ? (
-                <div role="status">
-                  <LoadingSkeleton lines={3} />
-                </div>
-              ) : (
-                <EmptyState
-                  action={
-                    <Link
-                      className="button button--primary button--medium"
-                      to={`/app/projects/${encodeURIComponent(projectId)}/documents`}
-                    >
-                      <Files aria-hidden="true" size={16} />
-                      <span>Open document library</span>
-                    </Link>
-                  }
-                  description="Upload an authorized source file before choosing a document-based workflow."
-                  icon={Files}
-                  title="No source documents yet"
-                />
-              )
+
+                {useProjectDescriptionOnly ? (
+                  <p className="workflow-selection__hint">
+                    No document content will be included. If no project
+                    description is available, add one in the project setup
+                    before running this analysis.
+                  </p>
+                ) : documents.length > 0 ? (
+                  <fieldset className="workflow-selection">
+                    <legend>
+                      Select source documents{" "}
+                      <span>{selectedDocumentIds.length} of 10 selected</span>
+                    </legend>
+                    <div className="workflow-document-list">
+                      {documents.map((document) => {
+                        const checked = selectedDocumentIds.includes(
+                          document.id,
+                        );
+                        const limitReached =
+                          selectedDocumentIds.length >= 10 && !checked;
+                        return (
+                          <label
+                            className={`workflow-document-option${checked ? " workflow-document-option--selected" : ""}`}
+                            htmlFor={`workflow-document-${document.id}`}
+                            key={document.id}
+                          >
+                            <input
+                              checked={checked}
+                              disabled={limitReached}
+                              id={`workflow-document-${document.id}`}
+                              onChange={(event) =>
+                                toggleDocument(
+                                  document.id,
+                                  event.currentTarget.checked,
+                                )
+                              }
+                              type="checkbox"
+                            />
+                            <span className="workflow-document-option__file">
+                              <strong>{document.fileName}</strong>
+                              <span>
+                                {getDocumentTypeLabel(document.mimeType)} ·{" "}
+                                {formatSize(document.sizeBytes)}
+                              </span>
+                            </span>
+                            {checked ? (
+                              <CheckCircle2
+                                aria-hidden="true"
+                                className="workflow-document-option__check"
+                                size={17}
+                              />
+                            ) : null}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                ) : documentsQuery.isPending ? (
+                  <div role="status">
+                    <LoadingSkeleton lines={3} />
+                  </div>
+                ) : (
+                  <EmptyState
+                    action={
+                      <Link
+                        className="button button--primary button--medium"
+                        to={`/app/projects/${encodeURIComponent(projectId)}/documents`}
+                      >
+                        <Files aria-hidden="true" size={16} />
+                        <span>Open document library</span>
+                      </Link>
+                    }
+                    description="Choose project-description-only analysis above or upload an authorized source file."
+                    icon={Files}
+                    title="No source documents yet"
+                  />
+                )}
+              </>
             ) : null}
 
             {currentWorkflow.context === "requirements" ||
@@ -763,6 +892,57 @@ export function WorkflowWorkbenchPage() {
                 />
               )
             ) : null}
+
+            {workflowTemplateType ? (
+              <fieldset className="workflow-selection">
+                <legend>Administrator-managed guidance</legend>
+                <p className="workflow-selection__hint">
+                  Optional active {getTemplateTypeLabel(workflowTemplateType)}{" "}
+                  templates add guidance while output validation stays enforced.
+                </p>
+                {templatesQuery.isError ? (
+                  <ErrorPanel
+                    message="Template guidance couldn't be loaded."
+                    title="Templates unavailable"
+                  />
+                ) : null}
+                {templatesQuery.data?.length ? (
+                  <div className="workflow-template-list">
+                    {templatesQuery.data.map((template) => (
+                      <label
+                        className="workflow-template-option"
+                        htmlFor={`workflow-template-${template.id}`}
+                        key={template.id}
+                      >
+                        <input
+                          checked={selectedTemplateIds.includes(template.id)}
+                          id={`workflow-template-${template.id}`}
+                          onChange={(event) =>
+                            toggleTemplate(
+                              template.id,
+                              event.currentTarget.checked,
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <strong>{template.name}</strong>
+                          <span>{template.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : templatesQuery.isPending ? (
+                  <div role="status">
+                    <LoadingSkeleton lines={2} />
+                  </div>
+                ) : (
+                  <p className="workflow-selection__hint">
+                    No active templates are available for this workflow.
+                  </p>
+                )}
+              </fieldset>
+            ) : null}
           </div>
 
           {selectionError ? (
@@ -881,7 +1061,7 @@ export function WorkflowWorkbenchPage() {
             </div>
             <div className="workflow-confirm__scope">
               <h3>Context included</h3>
-              {pendingRun.input.documentIds ? (
+              {pendingRun.input.documentIds?.length ? (
                 <>
                   <p>
                     Selected source document text and the project's existing
@@ -900,6 +1080,11 @@ export function WorkflowWorkbenchPage() {
                     })}
                   </ul>
                 </>
+              ) : pendingRun.input.documentIds !== undefined ? (
+                <p>
+                  Project name and description plus existing project
+                  requirements and artifacts. No document text will be sent.
+                </p>
               ) : (
                 <p>
                   Project context and existing artifacts
@@ -911,6 +1096,20 @@ export function WorkflowWorkbenchPage() {
                     : ""}
                 </p>
               )}
+              {pendingRun.input.templateIds?.length ? (
+                <div>
+                  <h4>Template guidance</h4>
+                  <ul>
+                    {pendingRun.input.templateIds.map((templateId) => (
+                      <li key={templateId}>
+                        {templatesQuery.data?.find(
+                          (template) => template.id === templateId,
+                        )?.name ?? templateId}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
             <p className="workflow-confirm__draft-note">
               The result will be a draft for human review, not an approval or
@@ -999,6 +1198,21 @@ function RequirementOption({
       </span>
     </label>
   );
+}
+
+function getWorkflowTemplateType(workflowName: WorkflowName): TemplateType {
+  return templateTypeByWorkflow[workflowName];
+}
+
+function getTemplateTypeLabel(type: TemplateType): string {
+  const labels: Record<TemplateType, string> = {
+    project_intake: "project intake",
+    requirements: "requirements",
+    epics_stories: "epic and story",
+    acceptance_criteria: "acceptance criteria",
+    risks_roadmaps: "risk and roadmap",
+  };
+  return labels[type];
 }
 
 function formatLabel(value: string) {

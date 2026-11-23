@@ -19,6 +19,7 @@ import { StatusBadge } from "../components/ui/StatusBadge";
 import { useProjects } from "../features/projects/project-queries";
 import { formatProjectDate, getProjectPath } from "../features/projects/format";
 import type { Project } from "../features/projects/project.schemas";
+import { getProjectSummary } from "../features/projects/project.schemas";
 import { getApiErrorPresentation } from "../lib/api-client";
 
 const pageSize = 12;
@@ -38,7 +39,7 @@ export function ProjectListPage() {
       const matchesSearch =
         !query ||
         project.name.toLocaleLowerCase().includes(query) ||
-        project.description.toLocaleLowerCase().includes(query);
+        getProjectSummary(project).toLocaleLowerCase().includes(query);
       const matchesStatus =
         statusFilter === "all" || project.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -52,7 +53,7 @@ export function ProjectListPage() {
       render: (project) => (
         <Link className="project-table__link" to={getProjectPath(project.id)}>
           <strong>{project.name}</strong>
-          <span>{project.description || "No description added."}</span>
+          <span>{getProjectSummary(project)}</span>
         </Link>
       ),
     },

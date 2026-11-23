@@ -2,10 +2,10 @@ import type { UserRole } from "./auth.schemas";
 
 export function getRoleLabel(role: UserRole) {
   const labels: Record<UserRole, string> = {
-    user: "User",
-    reviewer: "Reviewer",
-    admin: "Admin",
-    project_owner: "Project owner",
+    business_analyst: "Business Analyst",
+    product_owner: "Product Owner",
+    delivery_lead: "Delivery Lead",
+    admin: "Administrator",
   };
   return labels[role];
 }

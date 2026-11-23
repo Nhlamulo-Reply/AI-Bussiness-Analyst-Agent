@@ -11,7 +11,7 @@ interface ApprovalSubmissionPanelProps {
   projectId: string;
   artifactType: ApprovalArtifactType;
   artifactId: string;
-  status: "draft" | "reviewed" | "approved" | "rejected";
+  status: "draft" | "submitted" | "changes_requested" | "reviewed" | "approved" | "rejected";
 }
 
 export function ApprovalSubmissionPanel({
@@ -58,8 +58,9 @@ export function ApprovalSubmissionPanel({
           <strong>Submitted for review</strong>
         </div>
         <p>
-          This request is pending. Only a reviewer or admin can decide it, and
-          the submitter cannot review their own request.
+          This request is pending. Only an authorized Product Owner or
+          separately assigned approval role can decide it, and the submitter
+          cannot review their own request.
         </p>
         <p>
           Approval ID: <code>{submittedApproval.id}</code>
@@ -86,8 +87,9 @@ export function ApprovalSubmissionPanel({
           <ShieldCheck size={17} />
         </span>
         <p>
-          A reviewer or admin must decide this request. The backend prevents
-          submitters from reviewing their own requests.
+          An authorized Product Owner or separately assigned approval role must
+          decide this request. The backend prevents submitters from reviewing
+          their own requests.
         </p>
       </div>
       {!formOpen ? (

@@ -23,6 +23,15 @@ export const approvalSchema = z
     reviewerUserId: z.string().min(1).optional(),
     decision: approvalStatusSchema,
     comments: z.string().trim().max(4000),
+    deliveryFeedback: z
+      .array(
+        z.object({
+          reviewerUserId: z.string().min(1),
+          comments: z.string().trim().min(1).max(4000),
+          createdAt: z.iso.datetime(),
+        }).strict(),
+      )
+      .optional(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

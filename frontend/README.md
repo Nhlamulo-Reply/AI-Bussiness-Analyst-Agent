@@ -6,7 +6,9 @@ paginated project browsing, project creation, project overview, a live project
 document library, a backend-backed requirements register, and a deliverables
 workspace. The document library accepts one PDF, DOCX, or plain-text TXT file
 per upload (up to 5 MiB), shows upload progress and returned metadata, and does
-not provide preview, download, rename, or delete actions. The project AI
+not provide preview, download, rename, or permanent delete actions. Project
+owners can reversibly archive and restore documents; archived bytes remain
+stored but are hidden from standard lists, workflows, and exports. The project AI
 workbench offers seven backend-backed workflows with explicit context
 selection, privacy confirmation for document-based runs, execution polling,
 and validated draft results.
@@ -18,8 +20,11 @@ Editing creates a new version and resets the requirement to draft; linked
 document IDs cannot be changed through the current edit endpoint. The
 deliverables and project export workspaces are live. Reviewers and admins can
 load a project-scoped approval queue, inspect the submitted requirement or
-artifact, and record decisions. The backend enforces role, project access, and
-self-review restrictions.
+artifact, and record decisions. The backend enforces role, project access, and self-review restrictions. The
+Administration workspace supports first-admin bootstrap, user listing, role
+assignment, reversible user deactivation/reactivation, template management for
+all five categories, and audit history with full JSON/CSV export. Deactivation
+revokes existing JWT sessions; the last active administrator is protected.
 
 ## Implementation phase status
 
@@ -27,18 +32,18 @@ Status reviewed against the current frontend code on 2026-11-23. This is an
 implementation snapshot, not evidence that the approval gates in
 `backend/FRONTEND_IMPLEMENTATION_PLAN.md` were formally granted.
 
-| Phase                             | Status                                                                                                                                                                                                                                                                                                                                                                            |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Assessment and blueprint       | Documented in the implementation plan and this README.                                                                                                                                                                                                                                                                                                                            |
-| 2. Scaffold and design system     | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| 3. Authentication and app shell   | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| 4. Dashboard and projects         | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| 5. Document library and upload    | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| 6. Requirements management        | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| 7. AI workflow workbench          | Implemented for all seven backend workflows.                                                                                                                                                                                                                                                                                                                                      |
-| 8. Artifacts and version history  | Implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| 9. Approval UX                    | Implemented: draft requirements and artifacts can be submitted for review; reviewers/admins can list and inspect project approvals and approve, reject, or request changes. The backend enforces reviewer role, project access, pending-only transitions, and no self-review.                                                                                                     |
-| 10. Exports and release readiness | Partially implemented: JSON, Markdown, and CSV downloads are live; routes are code-split; and query caches are cleared when the signed-in token changes. Playwright covers the key authenticated flows with mocked API responses, while axe checks key routes at desktop and mobile widths. Full app-wide accessibility/security review and production hosting validation remain. |
+| Phase                             | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Assessment and blueprint       | Documented in the implementation plan and this README.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 2. Scaffold and design system     | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 3. Authentication and app shell   | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 4. Dashboard and projects         | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 5. Document library and upload    | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 6. Requirements management        | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 7. AI workflow workbench          | Implemented for all seven backend workflows.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 8. Artifacts and version history  | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 9. Approval UX                    | Implemented: draft requirements and artifacts can be submitted for review; reviewers/admins can list and inspect project approvals and approve, reject, or request changes. The backend enforces reviewer role, project access, pending-only transitions, and no self-review.                                                                                                                                                                                                                        |
+| 10. Exports and release readiness | Partially implemented: JSON, Markdown, and CSV project downloads plus JSON/CSV full audit exports are live; routes are code-split; query caches are cleared when the signed-in token changes; owner-only document archiving/restoration and admin user/template lifecycle controls are supported. Playwright covers key flows with mocked API responses, while axe checks key routes at desktop/mobile widths. Full app-wide accessibility/security review and production hosting validation remain. |
 
 The frontend uses lazy route loading with a shared loading state. In-memory
 query data is cleared when the access token changes or the user signs out.
@@ -50,6 +55,10 @@ acceptance-criteria generation, requirements validation, risk analysis, and
 roadmap generation. Each workflow describes its required inputs and expected
 draft output. It reuses project documents, requirements, and artifacts from the
 verified API endpoints; it does not fabricate a previous-run history list.
+Project intake can optionally display an active administrator-managed intake
+template. Workflow setup can select active category-matched guidance templates;
+the server rejects inactive or mismatched selections and still validates all
+generated output against its structured contract.
 
 Document-based workflows require one to ten explicitly selected documents and
 a separate confirmation that the user is authorized to share their content.
@@ -139,6 +148,9 @@ about backend hosting or storage.
 Authentication uses short-lived bearer tokens held in memory only. Reloading or
 closing the page clears the session and requires signing in again. New accounts
 receive the standard user role; elevated roles must be assigned separately.
+Administrators can deactivate/reactivate accounts and manage templates without
+deleting records. Audit events are retained indefinitely (no automatic purge),
+and administrators can download the complete history in JSON or CSV.
 Document uploads are stored by the backend but are not sent to an AI provider
 by uploading. Any later AI workflow that shares selected document content must
 show a separate confirmation. The frontend does not persist document bytes in

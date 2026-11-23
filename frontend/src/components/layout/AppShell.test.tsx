@@ -48,7 +48,7 @@ describe("AppShell role-aware navigation", () => {
     renderProjectShell({
       id: "user-1",
       email: "analyst@example.com",
-      roles: ["user"],
+      roles: ["business_analyst"],
     });
 
     expect(
@@ -59,11 +59,11 @@ describe("AppShell role-aware navigation", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows approvals navigation to a reviewer", async () => {
+  it("shows approvals navigation to a Product Owner", async () => {
     renderProjectShell({
       id: "reviewer-1",
       email: "reviewer@example.com",
-      roles: ["reviewer"],
+      roles: ["product_owner"],
     });
 
     expect(

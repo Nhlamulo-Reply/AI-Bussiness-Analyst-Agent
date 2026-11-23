@@ -1,4 +1,6 @@
 import {
+  Archive,
+  ArchiveRestore,
   FileText,
   FileUp,
   Files,
@@ -21,8 +23,12 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { Dialog } from "../components/ui/Dialog";
+import { useAuth } from "../features/auth/useAuth";
 import {
+  useArchiveProjectDocument,
   useProjectDocuments,
+  useRestoreProjectDocument,
   useUploadProjectDocument,
 } from "../features/documents/document-queries";
 import {
@@ -30,7 +36,9 @@ import {
   formatFileSize,
   getDocumentFileValidationError,
   getDocumentTypeLabel,
+  type DocumentMetadata,
 } from "../features/documents/document.schemas";
+import { useProject } from "../features/projects/project-queries";
 import { ApiError, getApiErrorPresentation } from "../lib/api-client";
 
 const fileAccept = [
@@ -61,15 +69,29 @@ export function ProjectDocumentLibraryRoute() {
 
 export function DocumentLibraryPage() {
   const { projectId = "" } = useParams();
+  const { session } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadControllerRef = useRef<AbortController | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectionError, setSelectionError] = useState<string>();
   const [privacyConfirmed, setPrivacyConfirmed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<DocumentMetadata | null>(
+    null,
+  );
   const [uploadProgress, setUploadProgress] = useState(0);
-  const documentsQuery = useProjectDocuments(projectId);
+  const projectQuery = useProject(projectId);
+  const canManageDocuments =
+    Boolean(session?.user.id) &&
+    projectQuery.data?.ownerUserId === session?.user.id;
+  const documentsQuery = useProjectDocuments(
+    projectId,
+    canManageDocuments && showArchived,
+  );
   const uploadMutation = useUploadProjectDocument(projectId, setUploadProgress);
+  const archiveMutation = useArchiveProjectDocument(projectId);
+  const restoreMutation = useRestoreProjectDocument(projectId);
   const documents = documentsQuery.data ?? [];
   useEffect(() => () => uploadControllerRef.current?.abort(), [projectId]);
   const duplicateFileName = selectedFile
@@ -157,6 +179,23 @@ export function DocumentLibraryPage() {
         "The document library couldn't be loaded.",
       )
     : undefined;
+  const projectError = projectQuery.isError
+    ? getApiErrorPresentation(
+        projectQuery.error,
+        "Project ownership couldn't be verified; archive controls are unavailable.",
+      )
+    : undefined;
+  const lifecycleError = archiveMutation.isError
+    ? getApiErrorPresentation(
+        archiveMutation.error,
+        "The document couldn't be archived. Please try again.",
+      )
+    : restoreMutation.isError
+      ? getApiErrorPresentation(
+          restoreMutation.error,
+          "The document couldn't be restored. Please try again.",
+        )
+      : undefined;
 
   return (
     <section
@@ -179,6 +218,14 @@ export function DocumentLibraryPage() {
           <span>Project overview</span>
         </Link>
       </header>
+
+      {projectError ? (
+        <ErrorPanel
+          message={projectError.message}
+          requestId={projectError.requestId}
+          title="Ownership unavailable"
+        />
+      ) : null}
 
       <div className="document-library__grid">
         <Card as="section" className="document-upload-card">
@@ -402,6 +449,18 @@ export function DocumentLibraryPage() {
                   : `${documents.length} ${documents.length === 1 ? "document" : "documents"}`}
               </p>
             </div>
+            {canManageDocuments ? (
+              <label className="document-archive-filter">
+                <input
+                  checked={showArchived}
+                  onChange={(event) =>
+                    setShowArchived(event.currentTarget.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>Show archived documents</span>
+              </label>
+            ) : null}
             <Button
               className="document-list-heading__refresh"
               disabled={documentsQuery.isFetching}
@@ -462,9 +521,17 @@ export function DocumentLibraryPage() {
           {documentsQuery.data && documents.length === 0 ? (
             <Card className="document-library__empty">
               <EmptyState
-                description="Uploaded source material will appear here with its file type, size, and upload date. Document contents are not displayed or downloaded on this screen."
+                description={
+                  showArchived
+                    ? "No documents are currently listed in this project."
+                    : "Uploaded source material will appear here with its file type, size, and upload date. Document contents are not displayed or downloaded on this screen."
+                }
                 icon={Files}
-                title="Your source library is ready"
+                title={
+                  showArchived
+                    ? "No documents found"
+                    : "Your source library is ready"
+                }
               />
             </Card>
           ) : null}
@@ -494,7 +561,17 @@ export function DocumentLibraryPage() {
                           ) : null}
                         </div>
                         <div className="document-card__badges">
-                          <StatusBadge tone="success">Uploaded</StatusBadge>
+                          <StatusBadge
+                            tone={
+                              document.status === "archived"
+                                ? "warning"
+                                : "success"
+                            }
+                          >
+                            {document.status === "archived"
+                              ? "Archived"
+                              : "Uploaded"}
+                          </StatusBadge>
                           <span className="document-card__type">
                             {getDocumentTypeLabel(document.mimeType)}
                           </span>
@@ -512,6 +589,36 @@ export function DocumentLibraryPage() {
                           ID {document.id}
                         </code>
                       </div>
+                      {canManageDocuments ? (
+                        <Button
+                          disabled={
+                            archiveMutation.isPending ||
+                            restoreMutation.isPending
+                          }
+                          leadingIcon={
+                            document.status === "archived" ? (
+                              <ArchiveRestore aria-hidden="true" size={15} />
+                            ) : (
+                              <Archive aria-hidden="true" size={15} />
+                            )
+                          }
+                          onClick={() => {
+                            if (document.status === "archived") {
+                              restoreMutation.mutate(document.id);
+                            } else {
+                              setArchiveTarget(document);
+                              archiveMutation.reset();
+                            }
+                          }}
+                          size="small"
+                          type="button"
+                          variant="secondary"
+                        >
+                          {document.status === "archived"
+                            ? "Restore"
+                            : "Archive"}
+                        </Button>
+                      ) : null}
                     </Card>
                   </li>
                 );
@@ -519,12 +626,69 @@ export function DocumentLibraryPage() {
             </ul>
           ) : null}
 
+          {lifecycleError ? (
+            <ErrorPanel
+              message={lifecycleError.message}
+              requestId={lifecycleError.requestId}
+              title="Document update unsuccessful"
+            />
+          ) : null}
+
           <p className="document-library__footnote">
-            This library shows metadata only. Preview, download, rename, and
-            delete actions are not available through the current API.
+            Only the project owner can archive or restore documents. Archived
+            files are hidden from standard lists, workflows, and exports while
+            their contents remain stored. Permanent deletion is not available.
           </p>
         </section>
       </div>
+      <Dialog
+        description="The file will be hidden from the standard library, AI workflows, and project exports. Its contents will remain stored and can be restored by the project owner."
+        onOpenChange={(open) => {
+          if (!open && !archiveMutation.isPending) setArchiveTarget(null);
+        }}
+        open={Boolean(archiveTarget)}
+        title="Archive this document?"
+      >
+        {archiveTarget ? (
+          <div className="document-archive-dialog">
+            <p>
+              Archive <strong>{archiveTarget.fileName}</strong>?
+            </p>
+            <div className="dialog__actions">
+              <Button
+                disabled={archiveMutation.isPending}
+                onClick={() => setArchiveTarget(null)}
+                type="button"
+                variant="secondary"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={archiveMutation.isPending}
+                leadingIcon={
+                  archiveMutation.isPending ? (
+                    <LoaderCircle
+                      aria-hidden="true"
+                      className="spin"
+                      size={16}
+                    />
+                  ) : (
+                    <Archive aria-hidden="true" size={16} />
+                  )
+                }
+                onClick={() =>
+                  archiveMutation.mutate(archiveTarget.id, {
+                    onSuccess: () => setArchiveTarget(null),
+                  })
+                }
+                type="button"
+              >
+                {archiveMutation.isPending ? "Archiving" : "Archive document"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
     </section>
   );
 }

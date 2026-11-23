@@ -11,6 +11,8 @@ export const artifactTypes = [
 ] as const;
 export const artifactStatuses = [
   "draft",
+  "submitted",
+  "changes_requested",
   "reviewed",
   "approved",
   "rejected",

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../features/auth/useAuth";
 import type { UserRole } from "../features/auth/auth.schemas";
+import { hasPermission, type Permission } from "../features/auth/permissions";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
@@ -69,9 +70,42 @@ export function RequireRole({
           <p className="eyebrow">RESTRICTED WORKSPACE</p>
           <h1>You don't have access to this area.</h1>
           <p>
-            This section is available to authorized reviewers and
+            This section is available to authorized Product Owners and
             administrators. Your account permissions are enforced by the backend
             as well.
+          </p>
+          <Link className="button button--secondary button--medium" to="/app">
+            <ArrowLeft aria-hidden="true" size={16} />
+            <span>Return to overview</span>
+          </Link>
+        </Card>
+      </section>
+    );
+  }
+  return children;
+}
+
+export function RequirePermission({
+  permission,
+  children,
+}: {
+  permission: Permission;
+  children: ReactNode;
+}) {
+  const { session } = useAuth();
+
+  if (!hasPermission(session?.user.roles, permission)) {
+    return (
+      <section className="access-denied">
+        <Card className="access-denied__card">
+          <span className="access-denied__icon">
+            <LockKeyhole aria-hidden="true" size={21} />
+          </span>
+          <p className="eyebrow">RESTRICTED WORKSPACE</p>
+          <h1>You don't have access to this area.</h1>
+          <p>
+            This section requires a role and project relationship authorized by
+            the backend.
           </p>
           <Link className="button button--secondary button--medium" to="/app">
             <ArrowLeft aria-hidden="true" size={16} />

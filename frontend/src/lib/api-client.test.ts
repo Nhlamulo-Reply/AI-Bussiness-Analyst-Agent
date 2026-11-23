@@ -9,7 +9,7 @@ const responseSchema = z.object({ value: z.string() });
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 describe("apiRequest", () => {

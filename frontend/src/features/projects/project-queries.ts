@@ -5,7 +5,12 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useAuth } from "../auth/useAuth";
-import { createProject, getProject, listProjects } from "./project-api";
+import {
+  createProject,
+  getProject,
+  listProjects,
+  updateProject,
+} from "./project-api";
 import type { CreateProjectInput } from "./project.schemas";
 
 export const projectKeys = {
@@ -57,6 +62,23 @@ export function useCreateProject() {
       if (!userId) return;
       queryClient.setQueryData(projectKeys.detail(userId, project.id), project);
       void queryClient.invalidateQueries({
+        queryKey: projectKeys.lists(userId),
+      });
+    },
+  });
+}
+
+export function useUpdateProject(projectId: string) {
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const userId = session?.user.id;
+
+  return useMutation({
+    mutationFn: (input: CreateProjectInput) => updateProject(projectId, input),
+    onSuccess: async (project) => {
+      if (!userId) return;
+      queryClient.setQueryData(projectKeys.detail(userId, project.id), project);
+      await queryClient.invalidateQueries({
         queryKey: projectKeys.lists(userId),
       });
     },

@@ -13,7 +13,7 @@ import type { Artifact } from "./artifact.schemas";
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 function makeArtifact(id: string): Artifact {

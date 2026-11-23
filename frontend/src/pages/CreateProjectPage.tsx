@@ -10,31 +10,59 @@ import { useCreateProject } from "../features/projects/project-queries";
 import { createProjectSchema } from "../features/projects/project.schemas";
 import { getProjectPath } from "../features/projects/format";
 import { getApiErrorPresentation } from "../lib/api-client";
+import { useAvailableTemplates } from "../features/admin/admin-queries";
 
 type FieldErrors = {
   name?: string;
   description?: string;
+  businessObjective?: string;
+  inScope?: string;
+  outOfScope?: string;
+  stakeholders?: string;
+  constraints?: string;
+  desiredOutputs?: string;
 };
 
 export function CreateProjectPage() {
   const navigate = useNavigate();
   const createProject = useCreateProject();
+  const intakeTemplatesQuery = useAvailableTemplates("project_intake");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [businessObjective, setBusinessObjective] = useState("");
+  const [inScope, setInScope] = useState("");
+  const [outOfScope, setOutOfScope] = useState("");
+  const [stakeholders, setStakeholders] = useState("");
+  const [constraints, setConstraints] = useState("");
+  const [desiredOutputs, setDesiredOutputs] = useState("");
+  const [intakeTemplateId, setIntakeTemplateId] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const selectedIntakeTemplate = intakeTemplatesQuery.data?.find(
+    (template) => template.id === intakeTemplateId,
+  );
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const parsed = createProjectSchema.safeParse({ name, description });
+    const parsed = createProjectSchema.safeParse({
+      name,
+      description,
+      businessObjective,
+      inScope,
+      outOfScope,
+      stakeholders: parseLineList(stakeholders),
+      constraints: parseLineList(constraints),
+      desiredOutputs: parseLineList(desiredOutputs),
+      ...(intakeTemplateId ? { intakeTemplateId } : {}),
+    });
     if (!parsed.success) {
       const nextErrors: FieldErrors = {};
       for (const issue of parsed.error.issues) {
         const field = issue.path[0];
-        if (
-          (field === "name" || field === "description") &&
-          !nextErrors[field]
-        ) {
-          nextErrors[field] = getFieldError(field, issue.message);
+        if (isFieldErrorKey(field)) {
+          const errorField = field;
+          if (!nextErrors[errorField]) {
+            nextErrors[errorField] = getFieldError(errorField, issue.message);
+          }
         }
       }
       setFieldErrors(nextErrors);
@@ -113,6 +141,40 @@ export function CreateProjectPage() {
               required
               value={name}
             />
+            {intakeTemplatesQuery.data?.length ? (
+              <div className="project-template-field">
+                <label htmlFor="intake-template">
+                  <span>Project intake template</span>
+                  <select
+                    id="intake-template"
+                    onChange={(event) =>
+                      setIntakeTemplateId(event.currentTarget.value)
+                    }
+                    value={intakeTemplateId}
+                  >
+                    <option value="">No template</option>
+                    {intakeTemplatesQuery.data.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedIntakeTemplate ? (
+                  <>
+                    <small>{selectedIntakeTemplate.description}</small>
+                    <details className="project-template-guidance">
+                      <summary>View intake guidance</summary>
+                      <p>{selectedIntakeTemplate.instructions}</p>
+                    </details>
+                  </>
+                ) : (
+                  <small>
+                    Choose administrator guidance for gathering project context.
+                  </small>
+                )}
+              </div>
+            ) : null}
             <TextAreaField
               count={`${description.length.toLocaleString()} / 4,000`}
               error={fieldErrors.description}
@@ -131,6 +193,121 @@ export function CreateProjectPage() {
               placeholder="What are you trying to understand or improve?"
               rows={5}
               value={description}
+            />
+            <TextAreaField
+              count={`${businessObjective.length.toLocaleString()} / 4,000`}
+              error={fieldErrors.businessObjective}
+              hint="Describe the business problem or outcome the project should address."
+              label="Business objective"
+              maxLength={4000}
+              name="businessObjective"
+              onChange={(event) => {
+                setBusinessObjective(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  businessObjective: undefined,
+                }));
+                createProject.reset();
+              }}
+              placeholder="What outcome should this work achieve?"
+              rows={3}
+              value={businessObjective}
+            />
+            <TextAreaField
+              count={`${inScope.length.toLocaleString()} / 4,000`}
+              error={fieldErrors.inScope}
+              hint="List the processes, teams, or capabilities included."
+              label="In scope"
+              maxLength={4000}
+              name="inScope"
+              onChange={(event) => {
+                setInScope(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  inScope: undefined,
+                }));
+                createProject.reset();
+              }}
+              placeholder="What is included in this project?"
+              rows={3}
+              value={inScope}
+            />
+            <TextAreaField
+              count={`${outOfScope.length.toLocaleString()} / 4,000`}
+              error={fieldErrors.outOfScope}
+              hint="Call out related work that is intentionally excluded."
+              label="Out of scope"
+              maxLength={4000}
+              name="outOfScope"
+              onChange={(event) => {
+                setOutOfScope(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  outOfScope: undefined,
+                }));
+                createProject.reset();
+              }}
+              placeholder="What will this project not address?"
+              rows={3}
+              value={outOfScope}
+            />
+            <TextAreaField
+              error={fieldErrors.stakeholders}
+              hint="Enter one stakeholder or role per line (up to 50)."
+              label="Stakeholders"
+              maxLength={10000}
+              name="stakeholders"
+              onChange={(event) => {
+                setStakeholders(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  stakeholders: undefined,
+                }));
+                createProject.reset();
+              }}
+              placeholder={"e.g. Operations manager\nCustomer support team"}
+              rows={3}
+              value={stakeholders}
+            />
+            <TextAreaField
+              error={fieldErrors.constraints}
+              hint="Enter one known constraint per line (up to 50)."
+              label="Constraints"
+              maxLength={10000}
+              name="constraints"
+              onChange={(event) => {
+                setConstraints(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  constraints: undefined,
+                }));
+                createProject.reset();
+              }}
+              placeholder={
+                "e.g. Must launch by Q4\nNo changes to the billing provider"
+              }
+              rows={3}
+              value={constraints}
+            />
+            <TextAreaField
+              error={fieldErrors.desiredOutputs}
+              hint="Enter one expected deliverable per line (up to 50)."
+              label="Desired outputs"
+              maxLength={10000}
+              name="desiredOutputs"
+              onChange={(event) => {
+                setDesiredOutputs(event.target.value);
+                setFieldErrors((current) => ({
+                  ...current,
+                  desiredOutputs: undefined,
+                }));
+                createProject.reset();
+              }}
+              placeholder={
+                "e.g. Prioritized requirements\nImplementation roadmap"
+              }
+              rows={3}
+              value={desiredOutputs}
             />
 
             {errorPresentation ? (
@@ -175,13 +352,47 @@ export function CreateProjectPage() {
   );
 }
 
-function getFieldError(field: "name" | "description", message: string) {
+function parseLineList(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isFieldErrorKey(field: PropertyKey): field is keyof FieldErrors {
+  return (
+    typeof field === "string" &&
+    [
+      "name",
+      "description",
+      "businessObjective",
+      "inScope",
+      "outOfScope",
+      "stakeholders",
+      "constraints",
+      "desiredOutputs",
+    ].includes(field)
+  );
+}
+
+function getFieldError(field: keyof FieldErrors, message: string) {
   if (field === "name") {
     return message.includes("160")
       ? "Project names must be 160 characters or fewer."
       : "Enter a project name.";
   }
-  return message.includes("4000")
-    ? "Descriptions must be 4,000 characters or fewer."
-    : "Review the project description.";
+  if (
+    field === "description" ||
+    field === "businessObjective" ||
+    field === "inScope" ||
+    field === "outOfScope"
+  ) {
+    return message.includes("4000")
+      ? "This field must be 4,000 characters or fewer."
+      : "Review this field.";
+  }
+  if (message.includes("50")) {
+    return "Enter no more than 50 items, one per line.";
+  }
+  return "Each line must contain 1 to 200 characters.";
 }

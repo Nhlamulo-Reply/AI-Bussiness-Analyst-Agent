@@ -65,3 +65,15 @@ export function decideApproval(approvalId: string, input: DecideApprovalInput) {
     schema: approvalSchema,
   });
 }
+
+export function addDeliveryFeedback(approvalId: string, comments: string) {
+  return apiRequest(
+    `/approvals/${encodeURIComponent(approvalId)}/delivery-feedback`,
+    {
+      method: "POST",
+      auth: "required",
+      json: { comments },
+      schema: approvalSchema,
+    },
+  );
+}

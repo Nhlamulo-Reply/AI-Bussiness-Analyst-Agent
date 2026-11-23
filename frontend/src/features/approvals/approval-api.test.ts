@@ -15,6 +15,7 @@ const approval = {
   submittedByUserId: "user-1",
   decision: "pending" as const,
   comments: "Please review.",
+  deliveryFeedback: [],
   createdAt: "2026-11-23T07:00:00.000Z",
   updatedAt: "2026-11-23T07:00:00.000Z",
 };
@@ -45,7 +46,7 @@ describe("approval API", () => {
       user: {
         id: "user-1",
         email: "analyst@example.com",
-        roles: ["user"],
+        roles: ["business_analyst"],
       },
     });
   });

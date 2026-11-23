@@ -11,7 +11,7 @@ import { ProjectListPage } from "./ProjectListPage";
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 const projects = [

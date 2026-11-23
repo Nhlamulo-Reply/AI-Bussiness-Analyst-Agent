@@ -1,28 +1,55 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { AuthUser } from "../features/auth/auth.schemas";
 import {
+  archiveProjectDocument,
   listProjectDocuments,
+  restoreProjectDocument,
   uploadProjectDocument,
 } from "../features/documents/document-api";
 import type { DocumentMetadata } from "../features/documents/document.schemas";
 import { AuthProvider } from "../features/auth/AuthProvider";
+import { getProject } from "../features/projects/project-api";
+import type { Project } from "../features/projects/project.schemas";
 import { ApiError } from "../lib/api-client";
 import { clearSession, setSession } from "../lib/auth-store";
 import { DocumentLibraryPage } from "./DocumentLibraryPage";
 
 vi.mock("../features/documents/document-api", () => ({
+  archiveProjectDocument: vi.fn(),
   listProjectDocuments: vi.fn(),
+  restoreProjectDocument: vi.fn(),
   uploadProjectDocument: vi.fn(),
+}));
+
+vi.mock("../features/projects/project-api", () => ({
+  getProject: vi.fn(),
 }));
 
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
+};
+
+const project: Project = {
+  id: "project-1",
+  name: "Product discovery",
+  description: "",
+  businessObjective: "",
+  inScope: "",
+  outOfScope: "",
+  stakeholders: [],
+  constraints: [],
+  desiredOutputs: [],
+  ownerUserId: "user-1",
+  members: [],
+  status: "active",
+  createdAt: "2026-03-04T05:06:07.000Z",
+  updatedAt: "2026-03-04T05:06:07.000Z",
 };
 
 const document: DocumentMetadata = {
@@ -36,7 +63,10 @@ const document: DocumentMetadata = {
   createdAt: "2026-03-04T05:06:07.000Z",
 };
 
-function renderDocumentLibrary(documents: DocumentMetadata[]) {
+function renderDocumentLibrary(
+  documents: DocumentMetadata[],
+  allDocuments: DocumentMetadata[] = documents,
+) {
   setSession({ accessToken: "test-token", user });
   vi.stubGlobal(
     "fetch",
@@ -52,6 +82,13 @@ function renderDocumentLibrary(documents: DocumentMetadata[]) {
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   vi.mocked(listProjectDocuments).mockResolvedValue(documents);
+  vi.mocked(getProject).mockResolvedValue(project);
+  vi.mocked(listProjectDocuments).mockImplementation(
+    async (_projectId, includeArchived = false) =>
+      includeArchived
+        ? allDocuments
+        : allDocuments.filter((item) => item.status === "uploaded"),
+  );
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -71,13 +108,30 @@ function renderDocumentLibrary(documents: DocumentMetadata[]) {
 
 describe("DocumentLibraryPage", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      value: function (this: HTMLDialogElement) {
+        this.open = true;
+      },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", {
+      configurable: true,
+      value: function (this: HTMLDialogElement) {
+        this.open = false;
+      },
+    });
     vi.stubEnv("VITE_API_BASE_URL", "/api/v1");
     clearSession();
     vi.mocked(listProjectDocuments).mockReset();
+    vi.mocked(archiveProjectDocument).mockReset();
+    vi.mocked(restoreProjectDocument).mockReset();
     vi.mocked(uploadProjectDocument).mockReset();
+    vi.mocked(getProject).mockReset();
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
     clearSession();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -208,5 +262,55 @@ describe("DocumentLibraryPage", () => {
     expect(
       await screen.findByText(/server may already have received the file/i),
     ).toBeInTheDocument();
+  });
+
+  it("archives documents with confirmation and lets the owner restore them", async () => {
+    const archivedDocument: DocumentMetadata = {
+      ...document,
+      id: "document-archived",
+      status: "archived",
+      archivedAt: "2026-03-05T05:06:07.000Z",
+      archivedByUserId: user.id,
+    };
+    vi.mocked(archiveProjectDocument).mockResolvedValue(archivedDocument);
+    vi.mocked(restoreProjectDocument).mockResolvedValue(document);
+    renderDocumentLibrary([document], [document, archivedDocument]);
+    const userActions = userEvent.setup();
+
+    await userActions.click(
+      await screen.findByRole("button", { name: "Archive" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Archive this document?" }),
+    ).toBeInTheDocument();
+    await userActions.click(
+      screen.getByRole("button", { name: "Archive document" }),
+    );
+    expect(archiveProjectDocument).toHaveBeenCalledWith(
+      "project-1",
+      "document-1",
+    );
+
+    await userActions.click(
+      screen.getByRole("checkbox", { name: "Show archived documents" }),
+    );
+    await waitFor(() =>
+      expect(listProjectDocuments).toHaveBeenCalledWith(
+        "project-1",
+        true,
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(await screen.findByText("ID document-archived")).toBeInTheDocument();
+    await userActions.click(screen.getByRole("button", { name: "Restore" }));
+    expect(restoreProjectDocument).toHaveBeenCalledWith(
+      "project-1",
+      "document-archived",
+    );
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      "project-1",
+      true,
+      expect.any(AbortSignal),
+    );
   });
 });

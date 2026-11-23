@@ -11,7 +11,7 @@ import { ApprovalWorkspacePage } from "./ApprovalWorkspacePage";
 const user: AuthUser = {
   id: "reviewer-1",
   email: "reviewer@example.com",
-  roles: ["user", "reviewer"],
+  roles: ["business_analyst", "product_owner"],
 };
 
 const approval = {

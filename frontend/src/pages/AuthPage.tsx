@@ -244,6 +244,20 @@ export function AuthPage({ mode }: AuthPageProps) {
                   ? "Create account"
                   : "Sign in"}
             </Button>
+            {!isRegister ? (
+              <Link className="auth-form__forgot" to="/forgot-password">
+                Forgot password?
+              </Link>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                window.location.assign("/api/v1/auth/google");
+              }}
+            >
+              Continue with Google
+            </Button>
           </form>
 
           <p className="auth-page__switch">
@@ -254,7 +268,7 @@ export function AuthPage({ mode }: AuthPageProps) {
           </p>
           {isRegister ? (
             <p className="auth-page__role-note">
-              New accounts start with standard user access.
+              New accounts start with Business Analyst access.
             </p>
           ) : null}
         </div>

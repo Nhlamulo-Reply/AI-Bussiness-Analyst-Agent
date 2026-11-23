@@ -3,23 +3,28 @@ import { Router } from "express";
 import { z } from "zod";
 import { ApprovalSubmissionError, ApprovalTransitionError, type Storage } from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
-import { authenticate, requireRoles } from "../../common/middleware/authentication";
+import { authenticate } from "../../common/middleware/authentication";
+import { requirePermission } from "../../common/middleware/authorization";
 import { getAuthenticatedUser, getRouteParam } from "../../common/middleware/current-user";
 import { requireProjectAccess } from "../../common/middleware/project-access";
 import { parsePagination } from "../../common/utils/pagination";
 import { validateBody } from "../../common/middleware/validation";
-import { createApprovalBodySchema, patchApprovalBodySchema } from "../domain/domain.schemas";
+import {
+  createApprovalBodySchema,
+  createDeliveryFeedbackBodySchema,
+  patchApprovalBodySchema,
+} from "../domain/domain.schemas";
 
 const approvalDecisions = ["pending", "approved", "rejected", "changes_requested"] as const;
 const approvalDecisionSchema = z.enum(approvalDecisions).optional();
 
 export function createProjectApprovalRouter(storage: Storage, jwtSecret: string): Router {
   const router = Router();
-  router.use(authenticate(jwtSecret));
+  router.use(authenticate(jwtSecret, storage));
 
   router.get(
     "/:projectId/approvals",
-    requireRoles("reviewer", "admin"),
+    requirePermission("approval.decide_business"),
     requireProjectAccess(storage),
     async (request, response, next) => {
       try {
@@ -49,9 +54,9 @@ export function createProjectApprovalRouter(storage: Storage, jwtSecret: string)
 
 export function createApprovalRouter(storage: Storage, jwtSecret: string): Router {
   const router = Router();
-  router.use(authenticate(jwtSecret));
+  router.use(authenticate(jwtSecret, storage));
 
-  router.post("/", validateBody(createApprovalBodySchema), requireProjectAccess(storage), async (request, response, next) => {
+  router.post("/", requirePermission("analysis.submit"), validateBody(createApprovalBodySchema), requireProjectAccess(storage), async (request, response, next) => {
     try {
       const user = getAuthenticatedUser(request);
       const artifact = await storage.getArtifact(request.body.artifactType, request.body.artifactId);
@@ -67,6 +72,7 @@ export function createApprovalRouter(storage: Storage, jwtSecret: string): Route
         submittedByUserId: user.id,
         decision: "pending",
         comments: request.body.comments,
+        deliveryFeedback: [],
         createdAt: now,
         updatedAt: now
       });
@@ -78,7 +84,7 @@ export function createApprovalRouter(storage: Storage, jwtSecret: string): Route
     }
   });
 
-  router.get("/:id", requireRoles("reviewer", "admin"), async (request, response, next) => {
+  router.get("/:id", requirePermission("approval.decide_business"), async (request, response, next) => {
     try {
       const user = getAuthenticatedUser(request);
       const approval = await storage.getApproval(getRouteParam(request, "id"));
@@ -99,9 +105,43 @@ export function createApprovalRouter(storage: Storage, jwtSecret: string): Route
     }
   });
 
+  router.post(
+    "/:id/delivery-feedback",
+    requirePermission("delivery.review"),
+    validateBody(createDeliveryFeedbackBodySchema),
+    async (request, response, next) => {
+      try {
+        const user = getAuthenticatedUser(request);
+        const approvalId = getRouteParam(request, "id");
+        const approval = await storage.getApproval(approvalId);
+        if (
+          !approval ||
+          !(await storage.userCanAccessProject(approval.projectId, user.id))
+        ) {
+          throw new AppError(404, "NOT_FOUND", "Approval not found.");
+        }
+        const updated = await storage.addDeliveryFeedback(
+          approvalId,
+          user.id,
+          request.body.comments,
+        );
+        if (!updated) {
+          throw new AppError(404, "NOT_FOUND", "Approval not found.");
+        }
+        response.status(200).json({
+          success: true,
+          data: updated,
+          requestId: request.id,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
   router.patch(
     "/:id",
-    requireRoles("reviewer", "admin"),
+    requirePermission("approval.decide_business"),
     validateBody(patchApprovalBodySchema),
     async (request, response, next) => {
       try {

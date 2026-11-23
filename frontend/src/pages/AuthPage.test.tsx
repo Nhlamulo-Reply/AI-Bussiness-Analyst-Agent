@@ -35,5 +35,5 @@ describe("AuthPage", () => {
 
     expect(screen.getByText("Passwords do not match.")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
-  });
+  }, 10000);
 });

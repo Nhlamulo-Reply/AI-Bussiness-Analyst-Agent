@@ -27,6 +27,7 @@ import type {
   ApprovalStatus,
 } from "../features/approvals/approval.schemas";
 import { getApiErrorPresentation } from "../lib/api-client";
+import { hasPermission } from "../features/auth/permissions";
 
 const approvalFilters: Array<{
   value: ApprovalStatus | "all";
@@ -75,9 +76,10 @@ const submittedAtFormatter = new Intl.DateTimeFormat(undefined, {
 export function ApprovalWorkspacePage() {
   const { projectId = "" } = useParams();
   const { session } = useAuth();
-  const canReview =
-    session?.user.roles.includes("reviewer") === true ||
-    session?.user.roles.includes("admin") === true;
+  const canReview = hasPermission(
+    session?.user.roles,
+    "approval.decide_business",
+  );
   const [filter, setFilter] = useState<ApprovalStatus | "all">("pending");
   const [pageState, setPageState] = useState({ projectId, page: 1 });
   const page = pageState.projectId === projectId ? pageState.page : 1;
@@ -161,8 +163,8 @@ export function ApprovalWorkspacePage() {
         <Card>
           <EmptyState
             icon={ShieldCheck}
-            title="Reviewer or admin role required"
-            description="Ask a project administrator to assign you the reviewer role. You must also have access to this project."
+            title="Product Owner or administrator role required"
+            description="Ask a project administrator to assign you the Product Owner role. You must also have access to this project."
           />
         </Card>
       ) : (

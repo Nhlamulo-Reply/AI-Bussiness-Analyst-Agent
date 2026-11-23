@@ -18,7 +18,7 @@ vi.mock("./approval-api", () => ({
 const user: AuthUser = {
   id: "submitter-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 const pendingApproval = {
@@ -33,7 +33,7 @@ const pendingApproval = {
   updatedAt: "2026-11-23T07:00:00.000Z",
 };
 
-function renderPanel(status: "draft" | "reviewed" | "approved" | "rejected") {
+function renderPanel(status: "draft" | "submitted" | "changes_requested" | "reviewed" | "approved" | "rejected") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

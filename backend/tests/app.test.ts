@@ -17,7 +17,10 @@ const config: AppConfig = {
   logLevel: "silent",
   llmProvider: "openai",
   groqModel: "openai/gpt-oss-120b",
-  openAiModel: "gpt-6-luna"
+  openAiModel: "gpt-6-luna",
+  passwordResetTtlSeconds: 900,
+  emailProvider: "none",
+  smtpSecure: false,
 };
 
 let app: ReturnType<typeof createApp>;
@@ -26,7 +29,9 @@ let temporaryDirectory: string;
 
 beforeEach(async () => {
   temporaryDirectory = await mkdtemp(join(tmpdir(), "business-analyst-api-"));
-  storage = new JsonFileStorage({ jsonStoragePath: join(temporaryDirectory, "store.json") });
+  storage = new JsonFileStorage({
+    jsonStoragePath: join(temporaryDirectory, "store.json"),
+  });
   await storage.connect();
   app = createApp({ config, storage, users: storage });
 });
@@ -66,7 +71,7 @@ describe("backend foundation", () => {
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({
       success: false,
-      error: { code: "VALIDATION_ERROR", requestId: "validation-test" }
+      error: { code: "VALIDATION_ERROR", requestId: "validation-test" },
     });
     expect(response.body.error.details.length).toBeGreaterThan(0);
   });
@@ -79,21 +84,29 @@ describe("backend foundation", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");
-    expect(response.body.error.requestId).toBe(response.headers["x-request-id"]);
+    expect(response.body.error.requestId).toBe(
+      response.headers["x-request-id"],
+    );
   });
 
   it("registers standard users and authenticates them with a bearer token", async () => {
-    const registration = await request(app)
-      .post("/api/v1/auth/register")
-      .send({ email: " Analyst@Example.com ", password: "a-long-test-password" });
+    const registration = await request(app).post("/api/v1/auth/register").send({
+      email: " Analyst@Example.com ",
+      password: "a-long-test-password",
+    });
     const token = registration.body.data.accessToken as string;
-    const profile = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
+    const profile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${token}`);
 
     expect(registration.status).toBe(201);
-    expect(registration.body.data.user).toMatchObject({ email: "analyst@example.com", roles: ["user"] });
+    expect(registration.body.data.user).toMatchObject({
+      email: "analyst@example.com",
+      roles: ["business_analyst"],
+    });
     expect(profile.status).toBe(200);
     expect(profile.body.data.user.email).toBe("analyst@example.com");
-    expect(profile.body.data.user.roles).toEqual(["user"]);
+    expect(profile.body.data.user.roles).toEqual(["business_analyst"]);
 
     const login = await request(app)
       .post("/api/v1/auth/login")
@@ -129,7 +142,14 @@ describe("backend foundation", () => {
     const projectResponse = await request(app)
       .post("/api/v1/projects")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .send({ name: "Requirements project" });
+      .send({
+        name: "Requirements project",
+        businessObjective: "Reduce onboarding drop-off.",
+        inScope: "Account setup and first use.",
+        stakeholders: ["Operations manager", "Support team"],
+        constraints: ["Launch before Q4."],
+        desiredOutputs: ["Prioritized requirements"],
+      });
     const listResponse = await request(app)
       .get("/api/v1/projects?page=1&limit=1")
       .set("Authorization", `Bearer ${ownerToken}`);
@@ -141,9 +161,94 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${outsider.token}`);
 
     expect(projectResponse.status).toBe(201);
-    expect(listResponse.body.data).toMatchObject({ page: 1, limit: 1, total: 1 });
+    expect(projectResponse.body.data).toMatchObject({
+      businessObjective: "Reduce onboarding drop-off.",
+      inScope: "Account setup and first use.",
+      outOfScope: "",
+      stakeholders: ["Operations manager", "Support team"],
+      constraints: ["Launch before Q4."],
+      desiredOutputs: ["Prioritized requirements"],
+    });
+    expect(listResponse.body.data).toMatchObject({
+      page: 1,
+      limit: 1,
+      total: 1,
+    });
     expect(invalidPage.status).toBe(400);
     expect(hiddenResponse.status).toBe(404);
+  });
+
+  it("allows owners to revise project briefs and audits sensitive project changes", async () => {
+    const owner = await registerUser("project-audit-owner@example.com");
+    const member = await registerUser("project-audit-member@example.com");
+    const project = await createProject(owner.token);
+    const update = await request(app)
+      .patch(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({
+        businessObjective: "Private objective details.",
+        stakeholders: ["Operations lead"],
+      });
+    const memberUpdate = await request(app)
+      .patch(`/api/v1/projects/${project.id}/members`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ memberIds: [member.id] });
+    const forbiddenUpdate = await request(app)
+      .patch(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ inScope: "Unauthorized edit." });
+    const upload = await request(app)
+      .post(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .attach("file", Buffer.from("Requirements source."), {
+        filename: "requirements.txt",
+        contentType: "text/plain",
+      });
+    const requirement = await request(app)
+      .post(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Initial requirement", type: "business" });
+    const revisedRequirement = await request(app)
+      .patch(`/api/v1/requirements/${requirement.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Revised requirement" });
+    const artifact = await request(app)
+      .post(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ type: "business_rule", title: "Initial rule" });
+    const revisedArtifact = await request(app)
+      .patch(`/api/v1/artifacts/${artifact.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Revised rule" });
+    const auditEvents = await storage.listAuditEvents(1, 100);
+    const actions = auditEvents.items.map((event) => event.action);
+
+    expect(update.status).toBe(200);
+    expect(update.body.data.businessObjective).toBe(
+      "Private objective details.",
+    );
+    expect(memberUpdate.status).toBe(200);
+    expect(forbiddenUpdate.status).toBe(403);
+    expect(upload.status).toBe(201);
+    expect(requirement.status).toBe(201);
+    expect(revisedRequirement.status).toBe(200);
+    expect(artifact.status).toBe(201);
+    expect(revisedArtifact.status).toBe(200);
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        "project.created",
+        "project.updated",
+        "project.members_changed",
+        "document.uploaded",
+        "requirement.created",
+        "requirement.updated",
+        "artifact.created",
+        "artifact.updated",
+      ]),
+    );
+    expect(JSON.stringify(auditEvents.items)).not.toContain(
+      "Private objective details.",
+    );
   });
 
   it("validates uploads, redacts stored document contents, and excludes them from exports", async () => {
@@ -152,19 +257,31 @@ describe("backend foundation", () => {
     const upload = await request(app)
       .post(`/api/v1/projects/${project.id}/documents`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .attach("file", Buffer.from("%PDF-1.4\nsample"), { filename: "brief.pdf", contentType: "application/pdf" });
+      .attach("file", Buffer.from("%PDF-1.4\nsample"), {
+        filename: "brief.pdf",
+        contentType: "application/pdf",
+      });
     const invalid = await request(app)
       .post(`/api/v1/projects/${project.id}/documents`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .attach("file", Buffer.from("not a PDF"), { filename: "brief.pdf", contentType: "application/pdf" });
+      .attach("file", Buffer.from("not a PDF"), {
+        filename: "brief.pdf",
+        contentType: "application/pdf",
+      });
     const empty = await request(app)
       .post(`/api/v1/projects/${project.id}/documents`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .attach("file", Buffer.alloc(0), { filename: "empty.txt", contentType: "text/plain" });
+      .attach("file", Buffer.alloc(0), {
+        filename: "empty.txt",
+        contentType: "text/plain",
+      });
     const oversized = await request(app)
       .post(`/api/v1/projects/${project.id}/documents`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .attach("file", Buffer.alloc(5 * 1024 * 1024 + 1, 0x61), { filename: "large.txt", contentType: "text/plain" });
+      .attach("file", Buffer.alloc(5 * 1024 * 1024 + 1, 0x61), {
+        filename: "large.txt",
+        contentType: "text/plain",
+      });
     const requirement = await request(app)
       .post(`/api/v1/projects/${project.id}/requirements`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -187,14 +304,289 @@ describe("backend foundation", () => {
     expect(oversized.status).toBe(413);
     expect(exportResponse.status).toBe(200);
     expect(exportResponse.text).not.toContain("contentBase64");
-    expect(exportResponse.text).not.toContain(Buffer.from("%PDF-1.4\nsample").toString("base64"));
+    expect(exportResponse.text).not.toContain(
+      Buffer.from("%PDF-1.4\nsample").toString("base64"),
+    );
     expect(csvExport.text).toContain('"\'=1+1"');
     expect(requirement.status).toBe(201);
   });
 
+  it("soft-archives documents for owners, retains bytes, and restores them", async () => {
+    const owner = await registerUser("archive-owner@example.com");
+    const member = await registerUser("archive-member@example.com");
+    const project = await createProject(owner.token);
+    await request(app)
+      .patch(`/api/v1/projects/${project.id}/members`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ memberIds: [member.id] });
+    const upload = await request(app)
+      .post(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .attach("file", Buffer.from("keep these bytes"), {
+        filename: "archive-me.txt",
+        contentType: "text/plain",
+      });
+    const documentId = upload.body.data.id as string;
+    const forbiddenArchive = await request(app)
+      .patch(`/api/v1/projects/${project.id}/documents/${documentId}/archive`)
+      .set("Authorization", `Bearer ${member.token}`);
+    const forbiddenArchivedList = await request(app)
+      .get(`/api/v1/projects/${project.id}/documents?includeArchived=true`)
+      .set("Authorization", `Bearer ${member.token}`);
+    const archived = await request(app)
+      .patch(`/api/v1/projects/${project.id}/documents/${documentId}/archive`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const activeListAfterArchive = await request(app)
+      .get(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const archivedList = await request(app)
+      .get(`/api/v1/projects/${project.id}/documents?includeArchived=true`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const exportAfterArchive = await request(app)
+      .get(`/api/v1/projects/${project.id}/export?format=json`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const storedDocument = await storage.getDocument(documentId);
+    const restored = await request(app)
+      .patch(`/api/v1/projects/${project.id}/documents/${documentId}/restore`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const activeListAfterRestore = await request(app)
+      .get(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${owner.token}`);
+
+    expect(upload.status).toBe(201);
+    expect(forbiddenArchive.status).toBe(403);
+    expect(forbiddenArchivedList.status).toBe(403);
+    expect(archived.status).toBe(200);
+    expect(archived.body.data).toMatchObject({
+      id: documentId,
+      status: "archived",
+      archivedByUserId: owner.id,
+    });
+    expect(archived.body.data.archivedAt).toEqual(expect.any(String));
+    expect(activeListAfterArchive.body.data).toEqual([]);
+    expect(archivedList.body.data).toHaveLength(1);
+    expect(archivedList.body.data[0]).not.toHaveProperty("contentBase64");
+    expect(exportAfterArchive.text).not.toContain("archive-me.txt");
+    expect(storedDocument?.contentBase64).toBe(
+      Buffer.from("keep these bytes").toString("base64"),
+    );
+    expect(restored.body.data).toMatchObject({
+      id: documentId,
+      status: "uploaded",
+    });
+    expect(restored.body.data).not.toHaveProperty("archivedAt");
+    expect(activeListAfterRestore.body.data).toHaveLength(1);
+    const auditEvents = await storage.listAuditEvents(1, 100);
+    expect(auditEvents.items.map((event) => event.action)).toEqual(
+      expect.arrayContaining([
+        "document.archived",
+        "document.restored",
+        "project.exported",
+      ]),
+    );
+  });
+
+  it("allows exactly one token-authorized first-admin bootstrap and exposes admin audit data", async () => {
+    const bootstrapToken = "one-time-bootstrap-token-with-at-least-32-chars";
+    const bootstrapApp = createApp({
+      config: { ...config, adminBootstrapToken: bootstrapToken },
+      storage,
+      users: storage,
+    });
+
+    const firstCandidate = await registerUser("bootstrap-first@example.com");
+    const secondCandidate = await registerUser("bootstrap-second@example.com");
+    const forbiddenUserList = await request(bootstrapApp)
+      .get("/api/v1/admin/users")
+      .set("Authorization", `Bearer ${firstCandidate.token}`);
+    const forbiddenAuditList = await request(bootstrapApp)
+      .get("/api/v1/admin/audit-events")
+      .set("Authorization", `Bearer ${firstCandidate.token}`);
+    const disabled = await request(app)
+      .post("/api/v1/users/bootstrap-admin")
+      .set("Authorization", `Bearer ${firstCandidate.token}`)
+      .send({ token: bootstrapToken });
+    const invalidToken = await request(bootstrapApp)
+      .post("/api/v1/users/bootstrap-admin")
+      .set("Authorization", `Bearer ${firstCandidate.token}`)
+      .send({ token: "incorrect-token-with-more-than-32-characters" });
+    const claims = await Promise.all([
+      request(bootstrapApp)
+        .post("/api/v1/users/bootstrap-admin")
+        .set("Authorization", `Bearer ${firstCandidate.token}`)
+        .send({ token: bootstrapToken }),
+      request(bootstrapApp)
+        .post("/api/v1/users/bootstrap-admin")
+        .set("Authorization", `Bearer ${secondCandidate.token}`)
+        .send({ token: bootstrapToken }),
+    ]);
+
+    expect(disabled.status).toBe(404);
+    expect(invalidToken.status).toBe(403);
+    expect(forbiddenUserList.status).toBe(403);
+    expect(forbiddenAuditList.status).toBe(403);
+    expect(claims.map((response) => response.status).sort()).toEqual([
+      200, 409,
+    ]);
+    const claimedResponse = claims.find((response) => response.status === 200);
+    const claimedUserId = claimedResponse?.body.data.id as string;
+    const claimedEmail =
+      claimedUserId === firstCandidate.id
+        ? "bootstrap-first@example.com"
+        : "bootstrap-second@example.com";
+    expect(claimedResponse?.body.data).toMatchObject({
+      roles: ["business_analyst", "admin"],
+      requiresLogin: true,
+    });
+
+    const adminToken = await login(claimedEmail);
+    const target = await registerUser("bootstrap-managed-user@example.com");
+    const userList = await request(bootstrapApp)
+      .get("/api/v1/admin/users")
+      .set("Authorization", `Bearer ${adminToken}`);
+    const roleUpdate = await request(bootstrapApp)
+      .patch(`/api/v1/users/${target.id}/roles`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ roles: ["business_analyst", "product_owner"] });
+    const auditResponse = await request(bootstrapApp)
+      .get("/api/v1/admin/audit-events")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(userList.status).toBe(200);
+    expect(userList.body.data.items).toHaveLength(3);
+    expect(
+      userList.body.data.items.every(
+        (user: object) => !("passwordHash" in user),
+      ),
+    ).toBe(true);
+    expect(roleUpdate.status).toBe(200);
+    expect(auditResponse.status).toBe(200);
+    expect(
+      auditResponse.body.data.items.map(
+        (event: { action: string }) => event.action,
+      ),
+    ).toEqual(
+      expect.arrayContaining(["admin.bootstrap", "user.roles_changed"]),
+    );
+  });
+
+  it("deactivates accounts, revokes JWTs immediately, and allows reactivation", async () => {
+    const admin = await registerUser("lifecycle-admin@example.com");
+    const member = await registerUser("lifecycle-member@example.com");
+    await storage.updateUserRoles(admin.id, ["business_analyst", "admin"]);
+    const adminToken = await login("lifecycle-admin@example.com");
+
+    const selfDeactivation = await request(app)
+      .patch(`/api/v1/admin/users/${admin.id}/active`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ active: false });
+    const deactivated = await request(app)
+      .patch(`/api/v1/admin/users/${member.id}/active`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ active: false });
+    const existingSession = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${member.token}`);
+    const inactiveLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({
+        email: "lifecycle-member@example.com",
+        password: "a-long-test-password",
+      });
+
+    expect(selfDeactivation.status).toBe(400);
+    expect(deactivated.status).toBe(200);
+    expect(deactivated.body.data.active).toBe(false);
+    expect(existingSession.status).toBe(401);
+    expect(inactiveLogin.status).toBe(401);
+
+    const reactivated = await request(app)
+      .patch(`/api/v1/admin/users/${member.id}/active`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ active: true });
+    const newLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({
+        email: "lifecycle-member@example.com",
+        password: "a-long-test-password",
+      });
+    const events = await storage.listAuditEvents(1, 100);
+
+    expect(reactivated.status).toBe(200);
+    expect(newLogin.status).toBe(200);
+    expect(events.items.map((event) => event.action)).toEqual(
+      expect.arrayContaining(["user.deactivated", "user.reactivated"]),
+    );
+  });
+
+  it("manages typed templates and exports the full audit log as JSON and CSV", async () => {
+    const admin = await registerUser("template-admin@example.com");
+    await storage.updateUserRoles(admin.id, ["business_analyst", "admin"]);
+    const token = await login("template-admin@example.com");
+    const created = await request(app)
+      .post("/api/v1/admin/templates")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        type: "project_intake",
+        name: "Product discovery",
+        description: "Guidance for project intake",
+        instructions: "Capture users, outcomes, and constraints.",
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("active");
+    const project = await request(app)
+      .post("/api/v1/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Templated project",
+        intakeTemplateId: created.body.data.id,
+      });
+    expect(project.status).toBe(201);
+    expect(project.body.data.intakeTemplateId).toBe(created.body.data.id);
+
+    const deactivated = await request(app)
+      .patch(`/api/v1/admin/templates/${created.body.data.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "inactive" });
+    const inactiveIntakeProject = await request(app)
+      .post("/api/v1/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Should not use inactive template",
+        intakeTemplateId: created.body.data.id,
+      });
+    const availableTemplates = await request(app)
+      .get("/api/v1/templates?type=project_intake")
+      .set("Authorization", `Bearer ${token}`);
+    const jsonExport = await request(app)
+      .get("/api/v1/admin/audit-events/export?format=json")
+      .set("Authorization", `Bearer ${token}`);
+    const csvExport = await request(app)
+      .get("/api/v1/admin/audit-events/export?format=csv")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(deactivated.status).toBe(200);
+    expect(inactiveIntakeProject.status).toBe(400);
+    expect(availableTemplates.body.data).toEqual([]);
+    expect(jsonExport.headers["content-disposition"]).toContain(
+      "audit-events.json",
+    );
+    expect(jsonExport.body.map((event: { action: string }) => event.action))
+      .toEqual(
+        expect.arrayContaining([
+          "template.created",
+          "template.deactivated",
+          "audit.exported",
+        ]),
+      );
+    expect(csvExport.headers["content-type"]).toContain("text/csv");
+    expect(csvExport.text).toContain("audit.exported");
+  });
+
   it("supports role assignment, project membership, requirement versions, and approval transitions", async () => {
     const firstAdmin = await registerUser("initial-admin@example.com");
-    await storage.updateUserRoles(firstAdmin.id, ["user", "admin"]);
+    await storage.updateUserRoles(firstAdmin.id, ["business_analyst", "admin"]);
     const adminLogin = await login("initial-admin@example.com");
     const owner = await registerUser("approver-owner@example.com");
     const reviewer = await registerUser("reviewer@example.com");
@@ -203,12 +595,17 @@ describe("backend foundation", () => {
     const roleUpdate = await request(app)
       .patch(`/api/v1/users/${reviewer.id}/roles`)
       .set("Authorization", `Bearer ${adminLogin}`)
-      .send({ roles: ["user", "reviewer"] });
+      .send({ roles: ["business_analyst", "product_owner"] });
     await request(app)
       .patch(`/api/v1/users/${owner.id}/roles`)
       .set("Authorization", `Bearer ${adminLogin}`)
-      .send({ roles: ["user", "reviewer"] });
+      .send({ roles: ["business_analyst", "product_owner"] });
     const ownerReviewerLogin = await login("approver-owner@example.com");
+    const staleOwnerSession = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.token}`);
+    expect(staleOwnerSession.status).toBe(401);
+    owner.token = ownerReviewerLogin;
     const reviewerLogin = await login("reviewer@example.com");
     const project = await createProject(owner.token);
     const members = await request(app)
@@ -222,11 +619,18 @@ describe("backend foundation", () => {
     const artifact = await request(app)
       .post(`/api/v1/projects/${project.id}/artifacts`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .send({ type: "story", title: "User story", requirementIds: [requirement.body.data.id] });
+      .send({
+        type: "story",
+        title: "User story",
+        requirementIds: [requirement.body.data.id],
+      });
     const artifactEdit = await request(app)
       .patch(`/api/v1/artifacts/${artifact.body.data.id}`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .send({ title: "Revised user story", data: { acceptanceNote: "reviewed" } });
+      .send({
+        title: "Revised user story",
+        data: { acceptanceNote: "reviewed" },
+      });
     const otherProject = await createProject(owner.token);
     const foreignRequirement = await request(app)
       .post(`/api/v1/projects/${otherProject.id}/requirements`)
@@ -249,10 +653,13 @@ describe("backend foundation", () => {
       .send({
         projectId: project.id,
         artifactType: "requirement",
-        artifactId: requirement.body.data.id
+        artifactId: requirement.body.data.id,
       });
+    expect(approval.status).toBe(201);
     const approvalQueue = await request(app)
-      .get(`/api/v1/projects/${project.id}/approvals?decision=pending&page=1&limit=1`)
+      .get(
+        `/api/v1/projects/${project.id}/approvals?decision=pending&page=1&limit=1`,
+      )
       .set("Authorization", `Bearer ${reviewerLogin}`);
     const approvalDetail = await request(app)
       .get(`/api/v1/approvals/${approval.body.data.id}`)
@@ -291,14 +698,22 @@ describe("backend foundation", () => {
     const artifactApproval = await request(app)
       .post("/api/v1/approvals")
       .set("Authorization", `Bearer ${owner.token}`)
-      .send({ projectId: project.id, artifactType: "story", artifactId: artifact.body.data.id });
+      .send({
+        projectId: project.id,
+        artifactType: "story",
+        artifactId: artifact.body.data.id,
+      });
     const artifactApprovalDetail = await request(app)
       .get(`/api/v1/approvals/${artifactApproval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`);
     const duplicateArtifactApproval = await request(app)
       .post("/api/v1/approvals")
       .set("Authorization", `Bearer ${owner.token}`)
-      .send({ projectId: project.id, artifactType: "story", artifactId: artifact.body.data.id });
+      .send({
+        projectId: project.id,
+        artifactType: "story",
+        artifactId: artifact.body.data.id,
+      });
     const editWhilePending = await request(app)
       .patch(`/api/v1/artifacts/${artifact.body.data.id}`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -306,7 +721,10 @@ describe("backend foundation", () => {
     const artifactDecision = await request(app)
       .patch(`/api/v1/approvals/${artifactApproval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
-      .send({ decision: "changes_requested", comments: "Clarify the outcome." });
+      .send({
+        decision: "changes_requested",
+        comments: "Clarify the outcome.",
+      });
     const updatedRequirements = await request(app)
       .get(`/api/v1/projects/${project.id}/requirements`)
       .set("Authorization", `Bearer ${owner.token}`);
@@ -331,7 +749,11 @@ describe("backend foundation", () => {
     expect(members.body.data.members).toContain(regularMember.id);
     expect(artifact.status).toBe(201);
     expect(artifactEdit.status).toBe(200);
-    expect(artifactEdit.body.data).toMatchObject({ title: "Revised user story", status: "draft", version: 2 });
+    expect(artifactEdit.body.data).toMatchObject({
+      title: "Revised user story",
+      status: "draft",
+      version: 2,
+    });
     expect(invalidArtifactEdit.status).toBe(400);
     expect(edit.body.data.version).toBe(2);
     expect(versions.body.data).toHaveLength(1);
@@ -340,7 +762,7 @@ describe("backend foundation", () => {
       page: 1,
       limit: 1,
       total: 1,
-      items: [{ id: approval.body.data.id, decision: "pending" }]
+      items: [{ id: approval.body.data.id, decision: "pending" }],
     });
     expect(approvalDetail.status).toBe(200);
     expect(approvalDetail.body.data).toMatchObject({
@@ -348,8 +770,8 @@ describe("backend foundation", () => {
       resource: {
         id: requirement.body.data.id,
         title: "Business requirement",
-        status: "draft"
-      }
+        status: "submitted",
+      },
     });
     expect(unauthorizedApprovalQueue.status).toBe(403);
     expect(inaccessibleApprovalQueue.status).toBe(404);
@@ -360,14 +782,14 @@ describe("backend foundation", () => {
     expect(decision.status).toBe(200);
     expect(approvedQueue.body.data).toMatchObject({
       total: 1,
-      items: [{ id: approval.body.data.id, decision: "approved" }]
+      items: [{ id: approval.body.data.id, decision: "approved" }],
     });
     expect(decision.body.data.decision).toBe("approved");
     expect(decision.body.data).toMatchObject({
       reviewerUserId: reviewer.id,
       comments: "Reviewed.",
       createdAt: expect.any(String),
-      updatedAt: expect.any(String)
+      updatedAt: expect.any(String),
     });
     expect(duplicateDecision.status).toBe(409);
     expect(artifactDecision.status).toBe(200);
@@ -375,31 +797,53 @@ describe("backend foundation", () => {
     expect(artifactApprovalDetail.body.data.resource).toMatchObject({
       id: artifact.body.data.id,
       type: "story",
-      title: "Revised user story"
+      title: "Revised user story",
     });
     expect(duplicateArtifactApproval.status).toBe(409);
     expect(editWhilePending.status).toBe(409);
-    expect(updatedRequirements.body.data.items[0]).toMatchObject({ status: "approved", version: 3 });
-    expect(updatedArtifacts.body.data.items[0]).toMatchObject({ status: "draft", version: 3 });
+    expect(updatedRequirements.body.data.items[0]).toMatchObject({
+      status: "approved",
+      version: 3,
+    });
+    expect(updatedArtifacts.body.data.items[0]).toMatchObject({
+      status: "changes_requested",
+      version: 3,
+    });
     expect(artifactVersions.body.data).toHaveLength(2);
     expect(artifactVersions.body.data[0]).toMatchObject({
       version: 1,
       actorUserId: owner.id,
       reason: "Artifact edited",
-      snapshot: { title: "User story", version: 1 }
+      snapshot: { title: "User story", version: 1 },
     });
     expect(artifactVersions.body.data[1]).toMatchObject({
       version: 2,
       actorUserId: reviewer.id,
       reason: "Approval decision: changes_requested",
-      snapshot: { title: "Revised user story", version: 2 }
+      snapshot: { title: "Revised user story", version: 2 },
     });
-    expect(projectExport.body.artifacts[0]).toMatchObject({ status: "draft" });
-    expect(projectExport.body.requirements[0]).toMatchObject({ status: "approved" });
-    expect(markdownExport.text).toContain("| story | Revised user story | draft |");
-    expect(markdownExport.text).toContain("| requirement | Business requirement | approved |");
-    expect(csvProjectExport.text).toContain('"story","' + artifact.body.data.id + '","Revised user story","draft"');
-    expect(csvProjectExport.text).toContain('"requirement","' + requirement.body.data.id + '","Business requirement","approved"');
+    expect(projectExport.body.artifacts[0]).toMatchObject({
+      status: "changes_requested",
+    });
+    expect(projectExport.body.requirements[0]).toMatchObject({
+      status: "approved",
+    });
+    expect(markdownExport.text).toContain(
+      "| story | Revised user story | changes_requested |",
+    );
+    expect(markdownExport.text).toContain(
+      "| requirement | Business requirement | approved |",
+    );
+    expect(csvProjectExport.text).toContain(
+      '"story","' +
+        artifact.body.data.id +
+        '","Revised user story","changes_requested"',
+    );
+    expect(csvProjectExport.text).toContain(
+      '"requirement","' +
+        requirement.body.data.id +
+        '","Business requirement","approved"',
+    );
   });
 
   it("requires authentication and reports an unconfigured AI provider for workflow submissions", async () => {
@@ -451,6 +895,10 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ type: "story", title: "Contract story" });
     const artifactId = artifact.body.data.id as string;
+    const projectEdit = await request(app)
+      .patch(`/api/v1/projects/${projectId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ businessObjective: "Revised project objective." });
     const artifactEdit = await request(app)
       .patch(`/api/v1/artifacts/${artifactId}`)
       .set("Authorization", `Bearer ${token}`)
@@ -459,20 +907,41 @@ describe("backend foundation", () => {
       .get(`/api/v1/projects/${projectId}/export?format=json`)
       .set("Authorization", `Bearer ${token}`);
 
-    expect(openApiDocument.paths["/health/live"].get.responses).toHaveProperty(String(live.status));
-    expect(openApiDocument.paths["/auth/register"].post.responses).toHaveProperty(String(registration.status));
-    expect(openApiDocument.paths["/projects"].post.responses).toHaveProperty(String(project.status));
-    expect(openApiDocument.paths["/projects/{id}/artifacts"].post.responses).toHaveProperty(String(artifact.status));
-    expect(openApiDocument.paths["/artifacts/{id}"].patch.responses).toHaveProperty(String(artifactEdit.status));
-    expect(openApiDocument.paths["/projects/{id}/export"].get.responses).toHaveProperty(String(projectExport.status));
+    expect(openApiDocument.paths["/health/live"].get.responses).toHaveProperty(
+      String(live.status),
+    );
+    expect(
+      openApiDocument.paths["/auth/register"].post.responses,
+    ).toHaveProperty(String(registration.status));
+    expect(openApiDocument.paths["/projects"].post.responses).toHaveProperty(
+      String(project.status),
+    );
+    expect(projectEdit.status).toBe(200);
+    expect(
+      openApiDocument.paths["/projects/{id}"].patch.responses,
+    ).toHaveProperty(String(projectEdit.status));
+    expect(
+      openApiDocument.paths["/projects/{id}/artifacts"].post.responses,
+    ).toHaveProperty(String(artifact.status));
+    expect(
+      openApiDocument.paths["/artifacts/{id}"].patch.responses,
+    ).toHaveProperty(String(artifactEdit.status));
+    expect(
+      openApiDocument.paths["/projects/{id}/export"].get.responses,
+    ).toHaveProperty(String(projectExport.status));
   });
 });
 
-async function registerUser(email: string): Promise<{ id: string; token: string }> {
+async function registerUser(
+  email: string,
+): Promise<{ id: string; token: string }> {
   const response = await request(app)
     .post("/api/v1/auth/register")
     .send({ email, password: "a-long-test-password" });
-  return { id: response.body.data.user.id, token: response.body.data.accessToken };
+  return {
+    id: response.body.data.user.id,
+    token: response.body.data.accessToken,
+  };
 }
 
 async function login(email: string): Promise<string> {

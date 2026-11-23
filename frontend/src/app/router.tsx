@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
-import { RequireAuth, RequireGuest, RequireRole } from "./AuthGuards";
+import { RequireAuth, RequireGuest, RequirePermission } from "./AuthGuards";
 import { AppShell } from "../components/layout/AppShell";
 import {
   ApprovalWorkspacePage,
+  AdminPage,
   ArtifactWorkspaceRoute,
   AuthPage,
+  ForgotPasswordPage,
+  ResetPasswordPage,
+  GoogleCallbackPage,
   CreateProjectPage,
   CreateRequirementRoute,
   NotFoundPage,
@@ -36,6 +40,18 @@ export const router = createBrowserRouter([
     element: <RequireGuest>{page(<AuthPage mode="register" />)}</RequireGuest>,
   },
   {
+    path: "/forgot-password",
+    element: <RequireGuest>{page(<ForgotPasswordPage />)}</RequireGuest>,
+  },
+  {
+    path: "/reset-password",
+    element: <RequireGuest>{page(<ResetPasswordPage />)}</RequireGuest>,
+  },
+  {
+    path: "/auth/google/callback",
+    element: <RequireGuest>{page(<GoogleCallbackPage />)}</RequireGuest>,
+  },
+  {
     path: "/app",
     element: (
       <RequireAuth>
@@ -50,7 +66,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects/new",
-        element: page(<CreateProjectPage />),
+        element: (
+          <RequirePermission permission="project.create">
+            {page(<CreateProjectPage />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId",
@@ -58,39 +78,71 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects/:projectId/documents",
-        element: page(<ProjectDocumentLibraryRoute />),
+        element: (
+          <RequirePermission permission="project.read">
+            {page(<ProjectDocumentLibraryRoute />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId/requirements",
-        element: page(<RequirementListRoute />),
+        element: (
+          <RequirePermission permission="project.read">
+            {page(<RequirementListRoute />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId/requirements/new",
-        element: page(<CreateRequirementRoute />),
+        element: (
+          <RequirePermission permission="analysis.prepare">
+            {page(<CreateRequirementRoute />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId/workflows",
-        element: page(<WorkflowWorkbenchRoute />),
+        element: (
+          <RequirePermission permission="analysis.prepare">
+            {page(<WorkflowWorkbenchRoute />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId/artifacts",
-        element: page(<ArtifactWorkspaceRoute />),
+        element: (
+          <RequirePermission permission="project.read">
+            {page(<ArtifactWorkspaceRoute />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId/approvals",
         element: (
-          <RequireRole roles={["reviewer", "admin"]}>
+          <RequirePermission permission="approval.decide_business">
             {page(<ApprovalWorkspacePage />)}
-          </RequireRole>
+          </RequirePermission>
         ),
       },
       {
         path: "projects/:projectId/exports",
-        element: page(<ProjectExportRoute />),
+        element: (
+          <RequirePermission permission="project.read">
+            {page(<ProjectExportRoute />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "profile",
         element: page(<ProfilePage />),
+      },
+      {
+        path: "admin",
+        element: (
+          <RequirePermission permission="admin.users">
+            {page(<AdminPage />)}
+          </RequirePermission>
+        ),
       },
       { path: "*", element: page(<NotFoundPage />) },
     ],

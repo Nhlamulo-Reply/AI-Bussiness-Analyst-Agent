@@ -24,6 +24,7 @@ const apiMocks = vi.hoisted(() => ({
   listWorkflowArtifacts: vi.fn(),
   submitWorkflow: vi.fn(),
   getWorkflowExecution: vi.fn(),
+  getProject: vi.fn(),
 }));
 
 vi.mock("../features/documents/document-api", () => ({
@@ -43,11 +44,25 @@ vi.mock("../features/workflows/workflow-api", () => ({
   listWorkflowArtifacts: apiMocks.listWorkflowArtifacts,
   submitWorkflow: apiMocks.submitWorkflow,
 }));
+vi.mock("../features/projects/project-api", () => ({
+  getProject: apiMocks.getProject,
+}));
 
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
+};
+
+const project = {
+  id: "project-1",
+  name: "Synthetic analysis",
+  description: "Customers need a clear way to recover account access.",
+  ownerUserId: user.id,
+  members: [],
+  status: "active" as const,
+  createdAt: "2026-03-04T05:06:07.000Z",
+  updatedAt: "2026-03-04T05:06:07.000Z",
 };
 
 const document: DocumentMetadata = {
@@ -165,6 +180,7 @@ describe("workflow workbench", () => {
       limit: 100,
       total: 0,
     });
+    apiMocks.getProject.mockResolvedValue(project);
     apiMocks.submitWorkflow.mockResolvedValue(queuedExecution);
     apiMocks.getWorkflowExecution.mockResolvedValue(completedExecution);
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
@@ -226,12 +242,52 @@ describe("workflow workbench", () => {
     expect(apiMocks.submitWorkflow).toHaveBeenCalledTimes(1);
     expect(apiMocks.submitWorkflow).toHaveBeenCalledWith(
       "requirements-analysis",
-      { projectId: "project-1", documentIds: ["document-1"] },
+      {
+        projectId: "project-1",
+        documentIds: ["document-1"],
+        shareDocumentContent: true,
+      },
     );
     expect(
       await screen.findByText("Review the unresolved policy details."),
     ).toBeInTheDocument();
     expect(screen.getByText("Account holder")).toBeInTheDocument();
+  });
+
+  it("runs requirement analysis from project context without sharing documents", async () => {
+    const userActions = userEvent.setup();
+    apiMocks.listProjectDocuments.mockResolvedValue([]);
+    renderWorkbench();
+
+    await userActions.click(
+      await screen.findByRole("button", { name: /Analyze requirements/ }),
+    );
+    await userActions.click(
+      await screen.findByRole("radio", {
+        name: /Use project context only/,
+      }),
+    );
+    await userActions.click(
+      screen.getByRole("button", { name: "Review and run" }),
+    );
+
+    expect(
+      screen.getByText(/No document text will be sent/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /authorized to share the selected document content/i,
+      }),
+    ).not.toBeInTheDocument();
+
+    await userActions.click(
+      screen.getByRole("button", { name: "Confirm and start" }),
+    );
+
+    expect(apiMocks.submitWorkflow).toHaveBeenCalledWith(
+      "requirements-analysis",
+      { projectId: "project-1", documentIds: [] },
+    );
   });
 
   it("submits only selected requirements for story generation", async () => {

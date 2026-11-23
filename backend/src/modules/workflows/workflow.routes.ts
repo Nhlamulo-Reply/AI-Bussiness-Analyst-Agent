@@ -3,6 +3,7 @@ import { rateLimit } from "express-rate-limit";
 import type { Storage } from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
 import { authenticate } from "../../common/middleware/authentication";
+import { requirePermission } from "../../common/middleware/authorization";
 import { getAuthenticatedUser, getRouteParam } from "../../common/middleware/current-user";
 import { requireProjectAccess } from "../../common/middleware/project-access";
 import { validateBody } from "../../common/middleware/validation";
@@ -22,7 +23,7 @@ const workflowRoutes: Array<[string, WorkflowName]> = [
 
 export function createWorkflowRouter(storage: Storage, jwtSecret: string, workflowService: WorkflowService): Router {
   const router = Router();
-  router.use(authenticate(jwtSecret));
+  router.use(authenticate(jwtSecret, storage));
 
   const workflowLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -45,6 +46,7 @@ export function createWorkflowRouter(storage: Storage, jwtSecret: string, workfl
   for (const [path, workflowName] of workflowRoutes) {
     router.post(
       path,
+      requirePermission("analysis.prepare"),
       validateBody(workflowJobBodySchema),
       requireProjectAccess(storage),
       workflowLimiter,

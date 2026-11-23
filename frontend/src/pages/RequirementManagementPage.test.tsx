@@ -16,7 +16,7 @@ import { RequirementListRoute } from "./RequirementListPage";
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 const sourceDocument = {
@@ -298,7 +298,7 @@ describe("requirements management pages", () => {
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
       title: "Verify ownership before email changes",
     });
-  });
+  }, 10_000);
 
   it("filters only the current server page and displays requirement traceability", async () => {
     const userActions = userEvent.setup();

@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 export const userRoles = [
-  "user",
-  "reviewer",
+  "business_analyst",
+  "product_owner",
+  "delivery_lead",
   "admin",
-  "project_owner",
 ] as const;
 
 export const authUserSchema = z
@@ -32,6 +32,11 @@ export const authResponseSchema = z
 export const currentUserResponseSchema = z
   .object({
     user: authUserSchema,
+  })
+  .strict();
+export const passwordResetResponseSchema = z
+  .object({
+    message: z.string().min(1),
   })
   .strict();
 

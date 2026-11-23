@@ -21,11 +21,40 @@ export const executionStatusSchema = z.enum([
 export const workflowJobSchema = z
   .object({
     projectId: z.string().min(1).max(128),
-    documentIds: z.array(z.string().min(1)).min(1).max(10).optional(),
+    documentIds: z.array(z.string().min(1)).max(10).optional(),
+    shareDocumentContent: z.boolean().optional(),
     requirementIds: z.array(z.string().min(1)).min(1).max(100).optional(),
     storyId: z.string().min(1).max(128).optional(),
+    templateIds: z.array(z.string().min(1).max(128)).max(10).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((request, context) => {
+    if (
+      request.templateIds &&
+      new Set(request.templateIds).size !== request.templateIds.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["templateIds"],
+        message: "Template IDs must be unique.",
+      });
+    }
+    const includesDocuments = (request.documentIds?.length ?? 0) > 0;
+    if (includesDocuments && request.shareDocumentContent !== true) {
+      context.addIssue({
+        code: "custom",
+        path: ["shareDocumentContent"],
+        message: "Confirm document sharing before submitting this workflow.",
+      });
+    }
+    if (!includesDocuments && request.shareDocumentContent === true) {
+      context.addIssue({
+        code: "custom",
+        path: ["shareDocumentContent"],
+        message: "Document-sharing confirmation requires selected documents.",
+      });
+    }
+  });
 
 export const workflowArtifactSchema = z
   .object({
@@ -42,7 +71,14 @@ export const workflowArtifactSchema = z
     ]),
     title: z.string().trim().min(1).max(240),
     description: z.string().trim().max(8000),
-    status: z.enum(["draft", "reviewed", "approved", "rejected"]),
+    status: z.enum([
+      "draft",
+      "submitted",
+      "changes_requested",
+      "reviewed",
+      "approved",
+      "rejected",
+    ]),
     requirementIds: z.array(z.string().min(1)).max(100),
     data: z.record(z.string(), z.unknown()),
     version: z.number().int().positive(),

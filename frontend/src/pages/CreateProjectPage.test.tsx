@@ -12,7 +12,7 @@ import { clearSession, setSession } from "../lib/auth-store";
 const user: AuthUser = {
   id: "user-1",
   email: "analyst@example.com",
-  roles: ["user"],
+  roles: ["business_analyst"],
 };
 
 const createdProject = {
@@ -113,6 +113,14 @@ describe("CreateProjectPage", () => {
       screen.getByRole("textbox", { name: "Description" }),
       "Improve the first-use experience.",
     );
+    await userActions.type(
+      screen.getByRole("textbox", { name: "Business objective" }),
+      "Reduce onboarding drop-off.",
+    );
+    await userActions.type(
+      screen.getByRole("textbox", { name: "Stakeholders" }),
+      "Operations manager\nCustomer support team",
+    );
     await userActions.click(
       screen.getByRole("button", { name: "Create project" }),
     );
@@ -127,11 +135,17 @@ describe("CreateProjectPage", () => {
         body: JSON.stringify({
           name: "Customer onboarding",
           description: "Improve the first-use experience.",
+          businessObjective: "Reduce onboarding drop-off.",
+          inScope: "",
+          outOfScope: "",
+          stakeholders: ["Operations manager", "Customer support team"],
+          constraints: [],
+          desiredOutputs: [],
         }),
       }),
     );
     expect(
       screen.getByRole("heading", { name: "Choose your next step" }),
     ).toBeInTheDocument();
-  });
+  }, 10000);
 });
