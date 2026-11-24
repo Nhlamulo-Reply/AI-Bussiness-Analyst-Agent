@@ -839,9 +839,9 @@ export function WorkflowWorkbenchPage() {
                 <fieldset className="workflow-selection">
                   <legend>Select a story</legend>
                   <p className="workflow-selection__hint">
-                    All project requirements and artifacts are included as
-                    context; acceptance criteria will be attached to the story
-                    you select.
+                    The selected story, its linked requirements, and project
+                    context are sent to the workflow. Generated criteria will be
+                    attached to that story.
                   </p>
                   <div className="workflow-story-list">
                     {stories.map((story) => (
@@ -1085,15 +1085,18 @@ export function WorkflowWorkbenchPage() {
                   Project name and description plus existing project
                   requirements and artifacts. No document text will be sent.
                 </p>
+              ) : pendingRun.input.storyId ? (
+                <p>
+                  Project context, the selected story, and its linked
+                  requirements. Generated criteria will be attached to that
+                  story.
+                </p>
               ) : (
                 <p>
                   Project context and existing artifacts
                   {pendingRun.input.requirementIds
                     ? ", with only the selected requirements."
                     : ", including all requirements."}
-                  {pendingRun.input.storyId
-                    ? " The selected story will receive generated criteria."
-                    : ""}
                 </p>
               )}
               {pendingRun.input.templateIds?.length ? (

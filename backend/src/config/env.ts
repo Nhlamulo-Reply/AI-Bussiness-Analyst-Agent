@@ -21,6 +21,10 @@ const environmentSchema = z.object({
   OPENAI_MODEL: z.string().trim().min(1).max(100).default("gpt-6-luna"),
   GROQ_API_KEY: z.string().trim().optional(),
   GROQ_MODEL: z.string().trim().min(1).max(100).default("openai/gpt-oss-120b"),
+  GEMINI_API_KEY: z.string().trim().optional(),
+  GEMINI_MODEL: z.string().trim().min(1).max(100).default("gemini-4-hydrogen"),
+  INCEPTION_API_KEY: z.string().trim().optional(),
+  INCEPTION_MODEL: z.string().trim().min(1).max(100).default("mercury-3"),
   PASSWORD_RESET_TTL_SECONDS: z.coerce.number().int().min(300).max(86400).default(900),
   PASSWORD_RESET_FRONTEND_URL: z.string().trim().optional(),
   EMAIL_PROVIDER: z.enum(["none", "smtp"]).default("none"),
@@ -49,6 +53,10 @@ export type AppConfig = {
   openAiModel: string;
   groqApiKey?: string;
   groqModel: string;
+  geminiApiKey?: string;
+  geminiModel: string;
+  inceptionApiKey?: string;
+  inceptionModel: string;
   passwordResetTtlSeconds: number;
   passwordResetFrontendUrl?: string;
   emailProvider: "none" | "smtp";
@@ -88,6 +96,10 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     openAiModel: parsed.data.OPENAI_MODEL,
     groqApiKey: parsed.data.GROQ_API_KEY || undefined,
     groqModel: parsed.data.GROQ_MODEL,
+    geminiApiKey: parsed.data.GEMINI_API_KEY || undefined,
+    geminiModel: parsed.data.GEMINI_MODEL,
+    inceptionApiKey: parsed.data.INCEPTION_API_KEY || undefined,
+    inceptionModel: parsed.data.INCEPTION_MODEL,
     passwordResetTtlSeconds: parsed.data.PASSWORD_RESET_TTL_SECONDS,
     passwordResetFrontendUrl: parsed.data.PASSWORD_RESET_FRONTEND_URL,
     emailProvider: parsed.data.EMAIL_PROVIDER,

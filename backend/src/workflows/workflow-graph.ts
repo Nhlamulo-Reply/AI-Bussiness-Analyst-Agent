@@ -105,7 +105,7 @@ export interface WorkflowGraphDependencies {
   storage: Storage;
   provider: StructuredOutputProvider;
   trackNode: WorkflowNodeTracker;
-  trackUsage: (usage: ProviderUsage) => Promise<void>;
+  trackUsage: (usage: ProviderUsage | undefined, model?: string) => Promise<void>;
 }
 
 export function getWorkflowNodeNames(workflowName: WorkflowName): string[] {
@@ -176,8 +176,8 @@ export function buildWorkflowGraph(dependencies: WorkflowGraphDependencies) {
       userPrompt,
       schema,
     );
-    if (response.usage) {
-      await trackUsage(response.usage);
+    if (response.usage || response.model) {
+      await trackUsage(response.usage, response.model);
     }
     return response.output;
   };

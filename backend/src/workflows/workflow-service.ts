@@ -9,7 +9,10 @@ import {
   type TemplateType,
 } from "../modules/domain/domain.schemas";
 import { extractDocumentText } from "../integrations/documents/text-extractor";
-import type { StructuredOutputProvider } from "../integrations/llm/structured-output-provider";
+import type {
+  ProviderUsage,
+  StructuredOutputProvider,
+} from "../integrations/llm/structured-output-provider";
 import type { WorkflowJob } from "./workflow-graph";
 import {
   buildWorkflowGraph,
@@ -209,7 +212,7 @@ export class WorkflowService {
         "This workflow is limited to 100 requirements and 100 artifacts.",
       );
     }
-    const requirements = request.requirementIds
+    let requirements = request.requirementIds
       ? request.requirementIds.map((id) => {
           const record = requirementPage.items.find(
             (requirement) => requirement.id === id,
@@ -252,6 +255,12 @@ export class WorkflowService {
       } else {
         artifacts = artifacts.filter((artifact) => artifact.type === "story");
       }
+      const linkedRequirementIds = new Set(
+        artifacts.flatMap((story) => story.requirementIds),
+      );
+      requirements = requirements.filter((requirement) =>
+        linkedRequirementIds.has(requirement.id),
+      );
     }
 
     const context: WorkflowContext = {
@@ -321,6 +330,7 @@ export class WorkflowService {
       inputTokens: 0,
       outputTokens: 0,
     };
+    let model = provider.model;
     const startedAt = Date.now();
     const trackNode = async (
       node: string,
@@ -348,7 +358,7 @@ export class WorkflowService {
       const updated = await this.storage.updateExecution(execution.id, {
         status: "running",
         nodeStates,
-        model: provider.model,
+        model,
         usage,
         startedAt: execution.startedAt ?? now,
       });
@@ -356,17 +366,19 @@ export class WorkflowService {
         throw new Error("Workflow execution record disappeared.");
       }
     };
-    const trackUsage = async (nextUsage: {
-      inputTokens: number;
-      outputTokens: number;
-    }) => {
+    const trackUsage = async (
+      nextUsage: ProviderUsage | undefined,
+      nextModel?: string,
+    ) => {
+      model = nextModel ?? model;
       usage = {
         requestCount: usage.requestCount + 1,
-        inputTokens: usage.inputTokens + nextUsage.inputTokens,
-        outputTokens: usage.outputTokens + nextUsage.outputTokens,
+        inputTokens: usage.inputTokens + (nextUsage?.inputTokens ?? 0),
+        outputTokens: usage.outputTokens + (nextUsage?.outputTokens ?? 0),
       };
       const updated = await this.storage.updateExecution(execution.id, {
         usage,
+        model,
       });
       if (!updated) {
         throw new Error("Workflow execution record disappeared.");
@@ -389,7 +401,7 @@ export class WorkflowService {
         nodeStates,
         result: finalState.partial.result,
         error: undefined,
-        model: provider.model,
+        model,
         usage,
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - startedAt,
@@ -405,7 +417,7 @@ export class WorkflowService {
           status: "failed",
           nodeStates,
           error: "Workflow failed before producing a validated result.",
-          model: provider.model,
+          model,
           usage,
           completedAt: new Date().toISOString(),
           durationMs: Date.now() - startedAt,

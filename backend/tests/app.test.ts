@@ -18,6 +18,8 @@ const config: AppConfig = {
   llmProvider: "openai",
   groqModel: "openai/gpt-oss-120b",
   openAiModel: "gpt-6-luna",
+  geminiModel: "gemini-4-hydrogen",
+  inceptionModel: "mercury-3",
   passwordResetTtlSeconds: 900,
   emailProvider: "none",
   smtpSecure: false,

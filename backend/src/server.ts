@@ -26,7 +26,7 @@ export async function startServer(): Promise<{
 
   const workflowService = new WorkflowService(
     storage,
-    createStructuredOutputProvider(config),
+    createStructuredOutputProvider(config, logger),
     logger
   );
   const app = createApp({ config, storage, users: storage, logger, workflowService });

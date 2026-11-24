@@ -13,6 +13,8 @@ describe("loadConfig", () => {
       jwtTtlSeconds: 900,
       llmProvider: "openai",
       openAiModel: "gpt-6-luna",
+      geminiModel: "gemini-4-hydrogen",
+      inceptionModel: "mercury-3",
     });
   });
 
@@ -28,6 +30,23 @@ describe("loadConfig", () => {
       llmProvider: "groq",
       groqApiKey: "test-groq-key",
       groqModel: "openai/gpt-oss-120b",
+    });
+  });
+
+  it("loads optional Gemini and Inception fallback credentials and model names", () => {
+    expect(
+      loadConfig({
+        ...validEnvironment,
+        GEMINI_API_KEY: "test-gemini-key",
+        GEMINI_MODEL: "gemini-fallback-model",
+        INCEPTION_API_KEY: "test-inception-key",
+        INCEPTION_MODEL: "inception-fallback-model",
+      }),
+    ).toMatchObject({
+      geminiApiKey: "test-gemini-key",
+      geminiModel: "gemini-fallback-model",
+      inceptionApiKey: "test-inception-key",
+      inceptionModel: "inception-fallback-model",
     });
   });
 

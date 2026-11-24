@@ -45,7 +45,7 @@ export function createApp(dependencies: AppDependencies): Express {
     dependencies.workflowService ??
     new WorkflowService(
       dependencies.storage,
-      createStructuredOutputProvider(dependencies.config),
+      createStructuredOutputProvider(dependencies.config, logger),
       logger,
     );
 

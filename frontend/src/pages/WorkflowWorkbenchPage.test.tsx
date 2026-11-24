@@ -344,6 +344,11 @@ describe("workflow workbench", () => {
         name: /Generate acceptance criteria/,
       }),
     );
+    expect(
+      screen.getByText(
+        /The selected story, its linked requirements, and project context/,
+      ),
+    ).toBeInTheDocument();
     const runButton = screen.getByRole("button", { name: "Review and run" });
     expect(runButton).toBeDisabled();
 

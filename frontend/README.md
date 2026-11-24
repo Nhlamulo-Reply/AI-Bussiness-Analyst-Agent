@@ -80,8 +80,10 @@ The confirmation explains that the selected document text and project context
 are sent to the AI provider configured by the service. Provider readiness is
 not exposed by the backend. Other workflows still send project requirements
 and artifact context; existing artifacts are included automatically and cannot
-be individually deselected. The service supports at most 100 requirements and
-100 artifacts in context and enforces a 40,000-character input limit.
+be individually deselected. Acceptance-criteria generation is scoped to the
+selected story and its linked requirements. The service supports at most 100
+requirements and 100 artifacts in context and enforces a 40,000-character
+input limit.
 
 Execution status is polled every two seconds for at most five minutes and
 honors `Retry-After`. Polling stops on a terminal state, page unmount, or the

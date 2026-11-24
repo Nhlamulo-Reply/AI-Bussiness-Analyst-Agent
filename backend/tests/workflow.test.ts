@@ -20,6 +20,8 @@ const config: AppConfig = {
   llmProvider: "openai",
   groqModel: "openai/gpt-oss-120b",
   openAiModel: "gpt-6-luna",
+  geminiModel: "gemini-4-hydrogen",
+  inceptionModel: "mercury-3",
   passwordResetTtlSeconds: 900,
   emailProvider: "none",
   smtpSecure: false,
@@ -64,7 +66,14 @@ it("runs an extraction graph, tracks every node, and persists cited drafts for r
 
   workflowService = new WorkflowService(
     storage,
-    new FakeStructuredOutputProvider(upload.body.data.id),
+    new FakeStructuredOutputProvider(
+      upload.body.data.id,
+      sourceText,
+      undefined,
+      undefined,
+      undefined,
+      "gemini-fallback-model",
+    ),
   );
   const workflowApp = createApp({
     config,
@@ -87,7 +96,7 @@ it("runs an extraction graph, tracks every node, and persists cited drafts for r
   const execution = await waitForExecution(submission.body.data.id);
   expect(execution).toMatchObject({ status: "completed" });
   expect(execution).toMatchObject({
-    model: "fake-test-model",
+    model: "gemini-fallback-model",
     usage: { requestCount: 3, inputTokens: 360, outputTokens: 105 },
     durationMs: expect.any(Number),
   });
@@ -453,10 +462,23 @@ it("generates traceable stories and testable acceptance criteria from a project 
       type: "functional",
     });
   const requirementId = requirementResponse.body.data.id as string;
-  workflowService = new WorkflowService(
-    storage,
-    new FakeStructuredOutputProvider("", sourceText, requirementId),
+  for (let index = 0; index < 17; index += 1) {
+    const unrelatedRequirement = await request(app)
+      .post(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${user.token}`)
+      .send({
+        title: `Unrelated requirement ${index + 1}`,
+        description: "x".repeat(2500),
+        type: "functional",
+      });
+    expect(unrelatedRequirement.status).toBe(201);
+  }
+  const provider = new FakeStructuredOutputProvider(
+    "",
+    sourceText,
+    requirementId,
   );
+  workflowService = new WorkflowService(storage, provider);
   const workflowApp = createApp({
     config,
     storage,
@@ -482,6 +504,7 @@ it("generates traceable stories and testable acceptance criteria from a project 
     .post("/api/v1/acceptance-criteria/generate")
     .set("Authorization", `Bearer ${user.token}`)
     .send({ projectId: project.id, storyId: storyIds[0] });
+  expect(criteriaSubmission.status).toBe(202);
   const criteriaExecution = await waitForExecution(
     criteriaSubmission.body.data.id,
   );
@@ -496,6 +519,16 @@ it("generates traceable stories and testable acceptance criteria from a project 
       "Acceptance-criteria workflow result does not contain a generated artifact ID.",
     );
   }
+  const acceptanceCriteriaPrompt = provider.prompts.at(-1);
+  if (!acceptanceCriteriaPrompt) {
+    throw new Error("Acceptance-criteria workflow did not call the provider.");
+  }
+  const promptContext = JSON.parse(acceptanceCriteriaPrompt.userPrompt) as {
+    requirements: Array<{ id: string }>;
+  };
+  expect(promptContext.requirements.map(({ id }) => id)).toEqual([
+    requirementId,
+  ]);
   const story = await storage.getArtifact("story", storyIds[0]);
   const criteria = await storage.getArtifact(
     "acceptance_criteria",
@@ -608,6 +641,7 @@ class FakeStructuredOutputProvider implements StructuredOutputProvider {
     private readonly requirementId?: string,
     private readonly failure?: Error,
     private readonly omittedScenarioType?: string,
+    private readonly generatedModel?: string,
   ) {}
 
   async generate<T extends z.ZodType>(
@@ -617,6 +651,7 @@ class FakeStructuredOutputProvider implements StructuredOutputProvider {
     schema: T,
   ): Promise<{
     output: z.output<T>;
+    model?: string;
     usage?: { inputTokens: number; outputTokens: number };
   }> {
     this.prompts.push({ systemPrompt, userPrompt });
@@ -702,6 +737,7 @@ class FakeStructuredOutputProvider implements StructuredOutputProvider {
 
     return {
       output: schema.parse(output),
+      model: this.generatedModel ?? this.model,
       usage: { inputTokens: 120, outputTokens: 35 },
     };
   }
