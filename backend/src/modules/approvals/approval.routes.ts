@@ -12,6 +12,7 @@ import { validateBody } from "../../common/middleware/validation";
 import {
   createApprovalBodySchema,
   createDeliveryFeedbackBodySchema,
+  deliveryArtifactTypes,
   patchApprovalBodySchema,
 } from "../domain/domain.schemas";
 
@@ -21,6 +22,47 @@ const approvalDecisionSchema = z.enum(approvalDecisions).optional();
 export function createProjectApprovalRouter(storage: Storage, jwtSecret: string): Router {
   const router = Router();
   router.use(authenticate(jwtSecret, storage));
+
+  router.get(
+    "/:projectId/delivery-reviews",
+    requirePermission("delivery.review"),
+    requireProjectAccess(storage),
+    async (request, response, next) => {
+      try {
+        const { page, limit } = parsePagination(request.query);
+        const approvals = await storage.listApprovals(
+          getRouteParam(request, "projectId"),
+          page,
+          limit,
+          "pending",
+          [...deliveryArtifactTypes],
+        );
+        const items = await Promise.all(
+          approvals.items.map(async (approval) => {
+            const resource = await storage.getArtifact(
+              approval.artifactType,
+              approval.artifactId,
+            );
+            if (!resource || resource.projectId !== approval.projectId) {
+              throw new AppError(
+                409,
+                "CONFLICT",
+                "A delivery review resource is unavailable.",
+              );
+            }
+            return { approval, resource };
+          }),
+        );
+        response.status(200).json({
+          success: true,
+          data: { ...approvals, items },
+          requestId: request.id,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   router.get(
     "/:projectId/approvals",
@@ -119,6 +161,24 @@ export function createApprovalRouter(storage: Storage, jwtSecret: string): Route
           !(await storage.userCanAccessProject(approval.projectId, user.id))
         ) {
           throw new AppError(404, "NOT_FOUND", "Approval not found.");
+        }
+        if (
+          !deliveryArtifactTypes.some(
+            (type) => type === approval.artifactType,
+          )
+        ) {
+          throw new AppError(
+            403,
+            "FORBIDDEN",
+            "Delivery feedback is only available for delivery artifacts.",
+          );
+        }
+        if (approval.decision !== "pending") {
+          throw new AppError(
+            409,
+            "CONFLICT",
+            "Delivery feedback can only be added to pending reviews.",
+          );
         }
         const updated = await storage.addDeliveryFeedback(
           approvalId,

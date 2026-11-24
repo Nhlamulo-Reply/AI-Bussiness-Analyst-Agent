@@ -143,7 +143,7 @@ export function createApp(dependencies: AppDependencies): Express {
   );
   app.use(
     "/api/v1/admin",
-    createAdminRouter(dependencies.storage, dependencies.config.jwtSecret),
+    createAdminRouter(dependencies.storage, dependencies.config),
   );
   app.use(
     "/api/v1/templates",

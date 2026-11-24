@@ -10,6 +10,8 @@ import {
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ProjectCard } from "../components/projects/ProjectCard";
+import { useAuth } from "../features/auth/useAuth";
+import { hasPermission } from "../features/auth/permissions";
 import { Button } from "../components/ui/Button";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -25,6 +27,8 @@ import { getApiErrorPresentation } from "../lib/api-client";
 const pageSize = 12;
 
 export function ProjectListPage() {
+  const { session } = useAuth();
+  const canCreateProject = hasPermission(session?.user.roles, "project.create");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -97,20 +101,22 @@ export function ProjectListPage() {
     <section aria-labelledby="projects-title" className="projects-page">
       <header className="page-heading">
         <div>
-          <p className="eyebrow">YOUR ANALYSIS WORKSPACE</p>
+          <p className="eyebrow">YOUR PROJECT WORKSPACE</p>
           <h1 id="projects-title">Projects</h1>
           <p className="page-heading__description">
-            Keep the source material, decisions, and next steps for your work
-            connected.
+            Access the projects assigned to your role and the work that needs
+            your attention.
           </p>
         </div>
-        <Link
-          className="button button--primary button--medium"
-          to="/app/projects/new"
-        >
-          <Plus aria-hidden="true" size={17} />
-          <span>New project</span>
-        </Link>
+        {canCreateProject ? (
+          <Link
+            className="button button--primary button--medium"
+            to="/app/projects/new"
+          >
+            <Plus aria-hidden="true" size={17} />
+            <span>New project</span>
+          </Link>
+        ) : null}
       </header>
 
       <div className="project-toolbar">
@@ -206,17 +212,25 @@ export function ProjectListPage() {
         {projects && projects.total === 0 ? (
           <div className="project-empty-panel">
             <EmptyState
-              description="Create your first project to give source documents, requirements, and decisions a shared home."
+              description={
+                canCreateProject
+                  ? "Create your first project to give source documents, requirements, and decisions a shared home."
+                  : "An administrator can add you to a project where your role is needed."
+              }
               icon={Plus}
-              title="Start with a project"
+              title={
+                canCreateProject ? "Start with a project" : "No projects yet"
+              }
               action={
-                <Link
-                  className="button button--primary button--medium"
-                  to="/app/projects/new"
-                >
-                  <Plus aria-hidden="true" size={16} />
-                  <span>Create your first project</span>
-                </Link>
+                canCreateProject ? (
+                  <Link
+                    className="button button--primary button--medium"
+                    to="/app/projects/new"
+                  >
+                    <Plus aria-hidden="true" size={16} />
+                    <span>Create your first project</span>
+                  </Link>
+                ) : undefined
               }
             />
           </div>

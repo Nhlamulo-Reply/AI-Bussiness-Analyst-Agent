@@ -19,6 +19,8 @@ import { formatProjectDate } from "../projects/format";
 import { useArtifactVersions, usePatchArtifact } from "./artifact-queries";
 import { ArtifactForm } from "./ArtifactForm";
 import { ApprovalSubmissionPanel } from "../approvals/ApprovalSubmissionPanel";
+import { useAuth } from "../auth/useAuth";
+import { hasPermission } from "../auth/permissions";
 import {
   artifactSchema,
   type Artifact,
@@ -152,9 +154,20 @@ export function ArtifactDetailsDialog({
   onOpenChange,
   onSaved,
 }: ArtifactDetailsDialogProps) {
+  const { session } = useAuth();
+  const canEdit = hasPermission(session?.user.roles, "analysis.prepare");
+  const canReadRequirements = hasPermission(
+    session?.user.roles,
+    "project.business.read",
+  );
   const [editing, setEditing] = useState(false);
   const [currentArtifact, setCurrentArtifact] = useState(artifact);
-  const requirementsQuery = useRequirements(currentArtifact.projectId, 1, 100);
+  const requirementsQuery = useRequirements(
+    currentArtifact.projectId,
+    1,
+    100,
+    canReadRequirements,
+  );
   const patchMutation = usePatchArtifact(
     currentArtifact.projectId,
     currentArtifact.id,
@@ -198,7 +211,7 @@ export function ArtifactDetailsDialog({
       open={open}
       title={editing ? "Edit artifact" : currentArtifact.title}
     >
-      {editing ? (
+      {editing && canEdit ? (
         <div className="artifact-edit-view">
           <Button
             leadingIcon={<ArrowLeft aria-hidden="true" size={14} />}
@@ -304,12 +317,16 @@ export function ArtifactDetailsDialog({
                   );
                   return (
                     <li key={id}>
-                      <Link
-                        to={`/app/projects/${encodeURIComponent(currentArtifact.projectId)}/requirements`}
-                        onClick={() => onOpenChange(false)}
-                      >
-                        {requirement ? requirement.title : id}
-                      </Link>
+                      {canReadRequirements ? (
+                        <Link
+                          to={`/app/projects/${encodeURIComponent(currentArtifact.projectId)}/requirements`}
+                          onClick={() => onOpenChange(false)}
+                        >
+                          {requirement ? requirement.title : id}
+                        </Link>
+                      ) : (
+                        <span>{id}</span>
+                      )}
                       <code>{id}</code>
                     </li>
                   );
@@ -428,19 +445,21 @@ export function ArtifactDetailsDialog({
             ) : null}
           </section>
 
-          <div className="artifact-detail__actions">
-            <Button
-              leadingIcon={<Pencil aria-hidden="true" size={14} />}
-              onClick={() => {
-                patchMutation.reset();
-                setEditing(true);
-              }}
-              type="button"
-              variant="secondary"
-            >
-              Edit artifact
-            </Button>
-          </div>
+          {canEdit ? (
+            <div className="artifact-detail__actions">
+              <Button
+                leadingIcon={<Pencil aria-hidden="true" size={14} />}
+                onClick={() => {
+                  patchMutation.reset();
+                  setEditing(true);
+                }}
+                type="button"
+                variant="secondary"
+              >
+                Edit artifact
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
     </Dialog>

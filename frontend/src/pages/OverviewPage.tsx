@@ -17,9 +17,19 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { useAuth } from "../features/auth/useAuth";
+import { getRoleLabel } from "../features/auth/role-label";
+import { hasPermission } from "../features/auth/permissions";
+import {
+  useApprovalDashboard,
+  useDeliveryReviewDashboard,
+} from "../features/approvals/approval-queries";
 import { useProjects } from "../features/projects/project-queries";
+import type { Project } from "../features/projects/project.schemas";
+import { getProjectPath } from "../features/projects/format";
 import { getApiErrorPresentation } from "../lib/api-client";
 import { Dialog } from "../components/ui/Dialog";
+import { Card } from "../components/ui/Card";
+import { StatusBadge } from "../components/ui/StatusBadge";
 
 const principles = [
   {
@@ -52,8 +62,20 @@ const workflowSteps = [
 export function OverviewPage() {
   const [guideOpen, setGuideOpen] = useState(false);
   const { session } = useAuth();
+  const roles = session?.user.roles;
+  const isBusinessAnalyst = hasPermission(roles, "analysis.prepare");
+  const isProductOwner = hasPermission(roles, "approval.decide_business");
+  const isDeliveryLead = hasPermission(roles, "delivery.review");
   const projectsQuery = useProjects(1, 100);
   const projects = projectsQuery.data;
+  const approvalQueue = useApprovalDashboard(
+    projects?.items ?? [],
+    isProductOwner,
+  );
+  const deliveryQueue = useDeliveryReviewDashboard(
+    projects?.items ?? [],
+    isDeliveryLead,
+  );
   const availableProjects = useMemo(
     () =>
       [...(projects?.items ?? [])]
@@ -69,15 +91,150 @@ export function OverviewPage() {
     "Your projects couldn't be loaded. Please try again.",
   );
 
+  if (!isBusinessAnalyst) {
+    return (
+      <>
+        {isProductOwner ? (
+          <ProjectQueueSection
+            description="Review submissions across your projects. AI-generated work remains a draft until a Product Owner makes a human decision."
+            eyebrow="PRODUCT OWNER WORKSPACE"
+            isLoading={
+              projectsQuery.isPending ||
+              Boolean(projects?.items.length && approvalQueue.isPending)
+            }
+            items={approvalQueue.data}
+            itemLabel="pending approval"
+            itemRouteSuffix="/approvals"
+            projects={projects?.items}
+            projectsError={
+              projectsQuery.isError && !projects
+                ? getApiErrorPresentation(
+                    projectsQuery.error,
+                    "Your projects couldn't be loaded.",
+                  )
+                : undefined
+            }
+            primaryHeading={!isBusinessAnalyst}
+            queueError={
+              approvalQueue.isError
+                ? getApiErrorPresentation(
+                    approvalQueue.error,
+                    "Your approval queues couldn't be loaded.",
+                  )
+                : undefined
+            }
+            title="Approval queue"
+          />
+        ) : null}
+        {isDeliveryLead ? (
+          <ProjectQueueSection
+            description="Review delivery risks, dependencies, and implementation plans. You can add feedback; a Product Owner remains responsible for the decision."
+            eyebrow="DELIVERY LEAD WORKSPACE"
+            isLoading={
+              projectsQuery.isPending ||
+              Boolean(projects?.items.length && deliveryQueue.isPending)
+            }
+            items={deliveryQueue.data}
+            itemLabel="pending delivery review"
+            itemRouteSuffix="/delivery-reviews"
+            projects={projects?.items}
+            projectsError={
+              projectsQuery.isError && !projects
+                ? getApiErrorPresentation(
+                    projectsQuery.error,
+                    "Your projects couldn't be loaded.",
+                  )
+                : undefined
+            }
+            primaryHeading={!isBusinessAnalyst && !isProductOwner}
+            queueError={
+              deliveryQueue.isError
+                ? getApiErrorPresentation(
+                    deliveryQueue.error,
+                    "Your delivery review queues couldn't be loaded.",
+                  )
+                : undefined
+            }
+            title="Delivery feedback queue"
+          />
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <>
+      {isProductOwner ? (
+        <ProjectQueueSection
+          description="Review submissions across your projects. AI-generated work remains a draft until a Product Owner makes a human decision."
+          eyebrow="PRODUCT OWNER WORKSPACE"
+          isLoading={
+            projectsQuery.isPending ||
+            Boolean(projects?.items.length && approvalQueue.isPending)
+          }
+          items={approvalQueue.data}
+          itemLabel="pending approval"
+          itemRouteSuffix="/approvals"
+          projects={projects?.items}
+          projectsError={
+            projectsQuery.isError && !projects
+              ? getApiErrorPresentation(
+                  projectsQuery.error,
+                  "Your projects couldn't be loaded.",
+                )
+              : undefined
+          }
+          primaryHeading={!isBusinessAnalyst}
+          queueError={
+            approvalQueue.isError
+              ? getApiErrorPresentation(
+                  approvalQueue.error,
+                  "Your approval queues couldn't be loaded.",
+                )
+              : undefined
+          }
+          title="Approval queue"
+        />
+      ) : null}
+      {isDeliveryLead ? (
+        <ProjectQueueSection
+          description="Review delivery risks, dependencies, and implementation plans. You can add feedback; a Product Owner remains responsible for the decision."
+          eyebrow="DELIVERY LEAD WORKSPACE"
+          isLoading={
+            projectsQuery.isPending ||
+            Boolean(projects?.items.length && deliveryQueue.isPending)
+          }
+          items={deliveryQueue.data}
+          itemLabel="pending delivery review"
+          itemRouteSuffix="/delivery-reviews"
+          projects={projects?.items}
+          projectsError={
+            projectsQuery.isError && !projects
+              ? getApiErrorPresentation(
+                  projectsQuery.error,
+                  "Your projects couldn't be loaded.",
+                )
+              : undefined
+          }
+          primaryHeading={!isBusinessAnalyst && !isProductOwner}
+          queueError={
+            deliveryQueue.isError
+              ? getApiErrorPresentation(
+                  deliveryQueue.error,
+                  "Your delivery review queues couldn't be loaded.",
+                )
+              : undefined
+          }
+          title="Delivery feedback queue"
+        />
+      ) : null}
       <section aria-labelledby="overview-title" className="hero-panel">
         <div className="hero-panel__copy">
           <p className="eyebrow">
             <span className="eyebrow__sparkle">
               <Sparkles aria-hidden="true" size={14} />
             </span>
-            BUSINESS ANALYSIS, IN FOCUS
+            {getRoleLabel("business_analyst").toUpperCase()}, IN FOCUS
           </p>
           <h1 id="overview-title">
             Turn complex inputs into <em>clear decisions.</em>
@@ -348,6 +505,128 @@ export function OverviewPage() {
         </ol>
       </Dialog>
     </>
+  );
+}
+
+function ProjectQueueSection({
+  description,
+  eyebrow,
+  isLoading,
+  items,
+  itemLabel,
+  itemRouteSuffix,
+  projects,
+  projectsError,
+  primaryHeading,
+  queueError,
+  title,
+}: {
+  description: string;
+  eyebrow: string;
+  isLoading: boolean;
+  items:
+    | Array<{
+        project: Project;
+        count: number;
+      }>
+    | undefined;
+  itemLabel: string;
+  itemRouteSuffix: string;
+  projects: Project[] | undefined;
+  projectsError?: ReturnType<typeof getApiErrorPresentation>;
+  primaryHeading: boolean;
+  queueError?: ReturnType<typeof getApiErrorPresentation>;
+  title: string;
+}) {
+  const headingId = `role-queue-${title.toLowerCase().replaceAll(" ", "-")}`;
+  const Heading = primaryHeading ? "h1" : "h2";
+  const counts = useMemo(() => {
+    const projectCounts = new Map<string, number>();
+    for (const item of items ?? []) {
+      projectCounts.set(
+        item.project.id,
+        (projectCounts.get(item.project.id) ?? 0) + item.count,
+      );
+    }
+    return projectCounts;
+  }, [items]);
+
+  return (
+    <section aria-labelledby={headingId} className="overview-projects">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <Heading id={headingId}>{title}</Heading>
+          <p className="section-heading__aside">{description}</p>
+        </div>
+      </div>
+      {projectsError ? (
+        <ErrorPanel
+          message={projectsError.message}
+          requestId={projectsError.requestId}
+          title="Projects are unavailable"
+        />
+      ) : null}
+      {queueError ? (
+        <ErrorPanel
+          message={queueError.message}
+          requestId={queueError.requestId}
+          title="Review queue unavailable"
+        />
+      ) : null}
+      {isLoading ? (
+        <div aria-busy="true" role="status">
+          <LoadingSkeleton lines={4} />
+        </div>
+      ) : projects?.length === 0 && !projectsError ? (
+        <Card>
+          <EmptyState
+            icon={ClipboardCheck}
+            title="No project access yet"
+            description="An administrator can add you to projects that need your review."
+          />
+        </Card>
+      ) : items && !queueError ? (
+        <div className="project-card-grid">
+          {(projects ?? []).map((project) => {
+            const count = counts.get(project.id) ?? 0;
+            return (
+              <Card
+                as="article"
+                className="project-card project-card--compact"
+                key={project.id}
+              >
+                <div className="project-card__top">
+                  <h2>{project.name}</h2>
+                  <StatusBadge tone={count ? "warning" : "success"}>
+                    {count} {itemLabel}
+                    {count === 1 ? "" : "s"}
+                  </StatusBadge>
+                </div>
+                <p>
+                  {count
+                    ? `${count} item${count === 1 ? "" : "s"} need your attention.`
+                    : `No ${itemLabel}s need attention right now.`}
+                </p>
+                <Link
+                  className="project-card__open"
+                  to={`${getProjectPath(project.id)}${itemRouteSuffix}`}
+                >
+                  Open {itemLabel} queue
+                  <ArrowUpRight aria-hidden="true" size={14} />
+                </Link>
+              </Card>
+            );
+          })}
+        </div>
+      ) : null}
+      {!isLoading && !projectsError && projects && projects.length === 0 ? (
+        <Link className="text-button" to="/app/projects">
+          Browse projects
+          <ArrowRight aria-hidden="true" size={15} />
+        </Link>
+      ) : null}
+    </section>
   );
 }
 

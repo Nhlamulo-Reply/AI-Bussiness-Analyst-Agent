@@ -17,6 +17,8 @@ import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { Badge } from "../components/ui/Badge";
+import { useAuth } from "../features/auth/useAuth";
+import { hasPermission } from "../features/auth/permissions";
 import { formatProjectDate } from "../features/projects/format";
 import { useRequirements } from "../features/requirements/requirement-queries";
 import type { Requirement } from "../features/requirements/requirement.schemas";
@@ -94,6 +96,8 @@ export function RequirementListRoute() {
 export function RequirementListPage() {
   const { projectId = "" } = useParams();
   const location = useLocation();
+  const { session } = useAuth();
+  const canPrepare = hasPermission(session?.user.roles, "analysis.prepare");
   const navigationState = navigationStateSchema.safeParse(location.state);
   const [page, setPage] = useState(
     navigationState.success ? (navigationState.data.page ?? 1) : 1,
@@ -242,13 +246,15 @@ export function RequirementListPage() {
             questions your team still needs to answer.
           </p>
         </div>
-        <Link
-          className="button button--primary button--medium"
-          to={`/app/projects/${encodeURIComponent(projectId)}/requirements/new`}
-        >
-          <Plus aria-hidden="true" size={17} />
-          <span>New requirement</span>
-        </Link>
+        {canPrepare ? (
+          <Link
+            className="button button--primary button--medium"
+            to={`/app/projects/${encodeURIComponent(projectId)}/requirements/new`}
+          >
+            <Plus aria-hidden="true" size={17} />
+            <span>New requirement</span>
+          </Link>
+        ) : null}
       </header>
 
       {createdRequirementId ? (
@@ -376,13 +382,15 @@ export function RequirementListPage() {
               icon={Plus}
               title="Start your requirements register"
               action={
-                <Link
-                  className="button button--primary button--medium"
-                  to={`/app/projects/${encodeURIComponent(projectId)}/requirements/new`}
-                >
-                  <Plus aria-hidden="true" size={16} />
-                  <span>Create a requirement</span>
-                </Link>
+                canPrepare ? (
+                  <Link
+                    className="button button--primary button--medium"
+                    to={`/app/projects/${encodeURIComponent(projectId)}/requirements/new`}
+                  >
+                    <Plus aria-hidden="true" size={16} />
+                    <span>Create a requirement</span>
+                  </Link>
+                ) : undefined
               }
             />
           </div>

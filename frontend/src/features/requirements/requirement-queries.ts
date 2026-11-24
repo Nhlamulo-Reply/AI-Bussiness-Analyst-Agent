@@ -34,6 +34,7 @@ export function useRequirements(
   projectId: string,
   page: number,
   limit = requirementPageSize,
+  enabled = true,
 ) {
   const { session } = useAuth();
   const userId = session?.user.id;
@@ -49,7 +50,7 @@ export function useRequirements(
       if (!userId) throw new Error("Sign in to load requirements.");
       return listRequirements({ projectId, page, limit, signal });
     },
-    enabled: Boolean(userId && projectId),
+    enabled: Boolean(userId && projectId && enabled),
     placeholderData: keepPreviousData,
   });
 }

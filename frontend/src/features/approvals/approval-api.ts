@@ -3,6 +3,7 @@ import {
   approvalDetailSchema,
   approvalPageSchema,
   approvalSchema,
+  deliveryReviewPageSchema,
   type ApprovalStatus,
   type CreateApprovalInput,
   type DecideApprovalInput,
@@ -15,16 +16,18 @@ export function listProjectApprovals(
     projectId,
     page,
     decision,
+    limit,
   }: {
     projectId: string;
     page: number;
     decision?: ApprovalStatus;
+    limit?: number;
   },
   signal?: AbortSignal,
 ) {
   const search = new URLSearchParams({
     page: String(page),
-    limit: String(approvalPageSize),
+    limit: String(limit ?? approvalPageSize),
   });
   if (decision) search.set("decision", decision);
 
@@ -35,6 +38,33 @@ export function listProjectApprovals(
       auth: "required",
       signal,
       schema: approvalPageSchema,
+    },
+  );
+}
+
+export function listProjectDeliveryReviews(
+  {
+    projectId,
+    page,
+    limit = approvalPageSize,
+  }: {
+    projectId: string;
+    page: number;
+    limit?: number;
+  },
+  signal?: AbortSignal,
+) {
+  const search = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  return apiRequest(
+    `/projects/${encodeURIComponent(projectId)}/delivery-reviews?${search}`,
+    {
+      method: "GET",
+      auth: "required",
+      signal,
+      schema: deliveryReviewPageSchema,
     },
   );
 }

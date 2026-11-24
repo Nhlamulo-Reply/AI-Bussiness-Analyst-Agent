@@ -6,12 +6,20 @@ import { TextAreaField } from "../../components/ui/TextAreaField";
 import { ApiError, getApiErrorPresentation } from "../../lib/api-client";
 import { useSubmitApproval } from "./approval-queries";
 import type { Approval, ApprovalArtifactType } from "./approval.schemas";
+import { useAuth } from "../auth/useAuth";
+import { hasPermission } from "../auth/permissions";
 
 interface ApprovalSubmissionPanelProps {
   projectId: string;
   artifactType: ApprovalArtifactType;
   artifactId: string;
-  status: "draft" | "submitted" | "changes_requested" | "reviewed" | "approved" | "rejected";
+  status:
+    | "draft"
+    | "submitted"
+    | "changes_requested"
+    | "reviewed"
+    | "approved"
+    | "rejected";
 }
 
 export function ApprovalSubmissionPanel({
@@ -22,6 +30,8 @@ export function ApprovalSubmissionPanel({
 }: ApprovalSubmissionPanelProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [comments, setComments] = useState("");
+  const { session } = useAuth();
+  const canSubmit = hasPermission(session?.user.roles, "analysis.submit");
   const [submission, setSubmission] = useState<{
     resourceKey: string;
     approval: Approval;
@@ -31,7 +41,7 @@ export function ApprovalSubmissionPanel({
   const submittedApproval =
     submission?.resourceKey === resourceKey ? submission.approval : undefined;
 
-  if (status !== "draft") return null;
+  if (!canSubmit || status !== "draft") return null;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -58,9 +68,8 @@ export function ApprovalSubmissionPanel({
           <strong>Submitted for review</strong>
         </div>
         <p>
-          This request is pending. Only an authorized Product Owner or
-          separately assigned approval role can decide it, and the submitter
-          cannot review their own request.
+          This request is pending for a Product Owner's decision. AI agents
+          cannot approve it, and the submitter cannot review their own request.
         </p>
         <p>
           Approval ID: <code>{submittedApproval.id}</code>
@@ -87,9 +96,8 @@ export function ApprovalSubmissionPanel({
           <ShieldCheck size={17} />
         </span>
         <p>
-          An authorized Product Owner or separately assigned approval role must
-          decide this request. The backend prevents submitters from reviewing
-          their own requests.
+          A Product Owner makes the human decision. AI agents can prepare drafts
+          but cannot approve this request.
         </p>
       </div>
       {!formOpen ? (

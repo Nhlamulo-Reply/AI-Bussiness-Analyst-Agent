@@ -44,19 +44,24 @@ The canonical role union is in [user.repository.ts](../../backend/src/modules/au
 
 The backend permission map is in [permissions.ts](../../backend/src/common/authorization/permissions.ts):
 
-| Role | Permissions |
-| --- | --- |
-| `business_analyst` | `project.create`, `analysis.prepare`, `analysis.submit` |
-| `product_owner` | `approval.decide_business` |
-| `delivery_lead` | `delivery.review` |
-| `admin` | `admin.users`, `admin.templates`, `admin.audit` |
+| Role               | Permissions                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `business_analyst` | `project.read`, `project.create`, `project.business.read`, `project.delivery.read`, `project.export`, `analysis.prepare`, `analysis.submit` |
+| `product_owner`    | `project.read`, `project.business.read`, `approval.decide_business`                                                                         |
+| `delivery_lead`    | `project.read`, `project.delivery.read`, `delivery.review`                                                                                  |
+| `admin`            | `admin.users`, `admin.project_access`, `admin.templates`, `admin.audit`                                                                     |
 
-The frontend mirrors this in [frontend permissions.ts](../../frontend/src/features/auth/permissions.ts).
+The frontend permission map in [frontend permissions.ts](../../frontend/src/features/auth/permissions.ts) mirrors these scopes, including project business/delivery read, export, and metadata-only Admin project access.
 
 Roles and permissions are both present:
 
 - Permission checks determine role capabilities.
-- Project ownership and membership remain a separate authorization relationship.
+- Project-content access requires a project role's read scope plus owner/member
+  access. Business Analysts and Product Owners can read business resources;
+  Business Analysts and Delivery Leads can read delivery artifacts.
+- The `admin` role is exclusive with project roles and never grants project
+  content access. Its dedicated project-access capability only exposes
+  project IDs, names, status, owner IDs, and member IDs for access management.
 - Role and permission names are authoritative only after backend authentication and storage lookup.
 
 ## 3. Existing backend authorization
@@ -65,14 +70,20 @@ Protected routes use [authentication.ts](../../backend/src/common/middleware/aut
 
 The route layer currently applies:
 
-| Capability | Implementation |
-| --- | --- |
-| Project creation | `project.create` |
-| Requirement/artifact/workflow preparation | `analysis.prepare` |
-| Approval submission | `analysis.submit` |
-| Product Owner approval decisions | `approval.decide_business` |
-| Delivery Lead feedback | `delivery.review` |
-| User, role, template, and audit administration | Admin role/administration middleware |
+| Capability                                          | Implementation                                            |
+| --------------------------------------------------- | --------------------------------------------------------- |
+| Project creation                                    | `project.create`                                          |
+| Requirement/artifact/workflow preparation and edits | `analysis.prepare`                                        |
+| Business requirements/documents/artifacts           | `project.business.read` plus project ownership/membership |
+| Delivery artifacts                                  | `project.delivery.read` plus project ownership/membership |
+| Full project export                                 | `project.export` (Business Analyst only)                  |
+| Approval submission                                 | `analysis.submit`                                         |
+| Product Owner approval queue and decisions          | `approval.decide_business`                                |
+| Delivery Lead pending-review queue and feedback     | `delivery.review`; feedback cannot decide                 |
+| User/role administration and one-time invitations   | `admin.users`                                             |
+| Metadata-only project membership administration     | `admin.project_access`                                    |
+| Template administration                             | `admin.templates`                                         |
+| Audit history and export                            | `admin.audit`                                             |
 
 Relevant route files:
 
@@ -95,40 +106,27 @@ The frontend has a centralized permission utility and guards:
 - [AuthGuards.tsx](../../frontend/src/app/AuthGuards.tsx)
 - [router.tsx](../../frontend/src/app/router.tsx)
 
-However, role-tailored rendering is incomplete:
-
-- [AppShell.tsx](../../frontend/src/components/layout/AppShell.tsx) filters only approvals and administration. It still displays project documents, requirements, workflows, deliverables, and exports generically.
-- [router.tsx](../../frontend/src/app/router.tsx) protects project creation, requirement creation, workflows, approvals, and administration. Documents, project overviews, requirements lists, artifacts, and exports are not permission-aware in routing.
-- [ApprovalWorkspacePage.tsx](../../frontend/src/pages/ApprovalWorkspacePage.tsx) contains direct role-name checks with `includes("product_owner")` and `includes("admin")`.
-- [AdminPage.tsx](../../frontend/src/pages/AdminPage.tsx) contains direct `roles.includes("admin")` behavior.
-- [AuthGuards.tsx](../../frontend/src/app/AuthGuards.tsx) still exports `RequireRole` for role-name guards, although permission guards are also available.
-- The project navigation is role-filtered but not project-membership-aware.
-- Project-specific editing actions are not driven by a backend authorization response or centralized project permission model.
-- Unauthorized routes often display a guarded access-denied screen instead of absent navigation and return-to-workspace UX.
-- Protected navigation can be associated with project context before project-specific authorization is known.
-- The dashboard does not yet have a complete centralized role/permission rendering model.
-
-This is why unauthorized features can still appear or can reach access-denied states in the current frontend. Frontend role visibility is not yet fully derived from one permission/navigation configuration.
+Frontend route guards and the shared navigation are permission-aware. Business
+Analysts can prepare work, Product Owners can decide business approvals, and
+Delivery Leads can provide delivery feedback without decision authority.
+Administrator navigation is isolated from project content, while the
+Administration workspace supports one-time invitations and metadata-only
+project membership. Page actions also follow these role scopes; backend project
+membership checks remain authoritative. A separate visual redesign and
+light/dark theme phase is still pending approval.
 
 ## 5. Password recovery assessment
 
-Password recovery does not exist.
+Password recovery is implemented with expiring, single-use reset tokens stored as
+SHA-256 digests, generic request responses, configurable expiry, and session
+invalidation after password changes. The email provider is configurable for
+local/no-email and SMTP operation.
 
-Needed implementation areas:
-
-- Add request, validation, and reset endpoints to [auth.routes.ts](../../backend/src/modules/auth/auth.routes.ts).
-- Add secure reset methods to [auth.service.ts](../../backend/src/modules/auth/auth.service.ts).
-- Extend [UserRepository and Storage](../../backend/src/modules/auth/user.repository.ts) with reset-token lookup/consumption/password-update operations.
-- Add reset token records to the JSON storage schema and startup validation in [storage.ts](../../backend/src/config/storage.ts).
-- Store only a SHA-256 or stronger cryptographic digest of each reset token.
-- Add an email provider adapter and configuration. No email provider exists.
-- Add reset request and reset completion frontend pages and routes.
-- Add a “Forgot password?” login action in [AuthPage.tsx](../../frontend/src/pages/AuthPage.tsx).
-- Extend authentication API utilities and schemas.
-- Invalidate existing JWTs after password reset. Because JWTs contain no server-side token version currently, use a password-reset/token-session invalidation mechanism or add a session/version claim checked by authentication middleware.
-- Record reset-request, reset-success, and reset-failure events in audit history without secrets or tokens.
-
-The current JSON state has password hashes but no provider identity or reset-token fields. Google-only account treatment will require an explicit authentication-provider identity model.
+Administrator invitations reuse the password-setup flow. The backend creates
+an inactive account, stores only a hash of the invitation token, and returns a
+copyable setup link to the authenticated administrator. The invitee activates
+the account by setting a password; the token is single-use and expires. No
+password or raw invitation token is written to storage or audit records.
 
 ## 6. Google authentication assessment
 

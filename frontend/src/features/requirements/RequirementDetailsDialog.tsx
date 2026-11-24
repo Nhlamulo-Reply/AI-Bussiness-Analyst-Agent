@@ -22,6 +22,8 @@ import {
 import { RequirementForm } from "./RequirementForm";
 import type { RequirementFormValues } from "./requirement-form.schemas";
 import { ApprovalSubmissionPanel } from "../approvals/ApprovalSubmissionPanel";
+import { useAuth } from "../auth/useAuth";
+import { hasPermission } from "../auth/permissions";
 
 interface RequirementDetailsDialogProps {
   open: boolean;
@@ -279,6 +281,8 @@ export function RequirementDetailsDialog({
   projectId,
   requirement,
 }: RequirementDetailsDialogProps) {
+  const { session } = useAuth();
+  const canEdit = hasPermission(session?.user.roles, "analysis.prepare");
   const [isEditing, setIsEditing] = useState(false);
   const [savedVersion, setSavedVersion] = useState<number>();
   const [formMessage, setFormMessage] = useState<string>();
@@ -332,7 +336,7 @@ export function RequirementDetailsDialog({
         </p>
       ) : null}
 
-      {isEditing ? (
+      {isEditing && canEdit ? (
         <RequirementForm
           documents={documents}
           documentsError={
@@ -363,19 +367,21 @@ export function RequirementDetailsDialog({
               <p className="eyebrow">REQUIREMENT</p>
               <h3>{requirement.title}</h3>
             </div>
-            <Button
-              leadingIcon={<Pencil aria-hidden="true" size={15} />}
-              onClick={() => {
-                patchMutation.reset();
-                setFormMessage(undefined);
-                setIsEditing(true);
-              }}
-              size="small"
-              type="button"
-              variant="secondary"
-            >
-              Edit
-            </Button>
+            {canEdit ? (
+              <Button
+                leadingIcon={<Pencil aria-hidden="true" size={15} />}
+                onClick={() => {
+                  patchMutation.reset();
+                  setFormMessage(undefined);
+                  setIsEditing(true);
+                }}
+                size="small"
+                type="button"
+                variant="secondary"
+              >
+                Edit
+              </Button>
+            ) : null}
           </div>
 
           <div className="requirement-detail__badges">

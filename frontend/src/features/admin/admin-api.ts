@@ -7,8 +7,13 @@ import {
   adminUserSchema,
   bootstrapAdminResponseSchema,
   createTemplateSchema,
+  inviteUserInputSchema,
+  inviteUserResponseSchema,
+  projectAccessPageSchema,
+  projectAccessSchema,
   templateTypeSchema,
   updateUserRolesSchema,
+  updateProjectMembersSchema,
   type AdminTemplate,
   type UserRole,
 } from "./admin.schemas";
@@ -30,6 +35,39 @@ export function listAdminUsers(signal?: AbortSignal) {
     schema: adminUserPageSchema,
     signal,
   });
+}
+
+export function inviteAdminUser(input: z.input<typeof inviteUserInputSchema>) {
+  return apiRequest("/admin/users/invitations", {
+    method: "POST",
+    auth: "required",
+    json: inviteUserInputSchema.parse(input),
+    schema: inviteUserResponseSchema,
+  });
+}
+
+export function listAdminProjectAccess(signal?: AbortSignal) {
+  return apiRequest("/admin/project-access?page=1&limit=100", {
+    auth: "required",
+    schema: projectAccessPageSchema,
+    signal,
+  });
+}
+
+export function updateAdminProjectMembers(
+  projectId: string,
+  memberIds: string[],
+) {
+  const json = updateProjectMembersSchema.parse({ memberIds });
+  return apiRequest(
+    `/admin/project-access/${encodeURIComponent(projectId)}/members`,
+    {
+      method: "PUT",
+      auth: "required",
+      json,
+      schema: projectAccessSchema,
+    },
+  );
 }
 
 export function listAdminAuditEvents(signal?: AbortSignal) {

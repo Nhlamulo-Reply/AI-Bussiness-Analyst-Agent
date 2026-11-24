@@ -9,7 +9,9 @@ import {
   ListChecks,
   LoaderCircle,
   RotateCw,
+  MessageSquareText,
   Sparkles,
+  ShieldCheck,
   UsersRound,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
@@ -24,12 +26,18 @@ import { formatProjectDate } from "../features/projects/format";
 import { useProject } from "../features/projects/project-queries";
 import { getProjectSummary } from "../features/projects/project.schemas";
 import { getApiErrorPresentation } from "../lib/api-client";
+import {
+  hasAnyPermission,
+  hasPermission,
+  type Permission,
+} from "../features/auth/permissions";
 
 export function ProjectOverviewPage() {
   const { projectId = "" } = useParams();
   const { session } = useAuth();
   const projectQuery = useProject(projectId);
   const project = projectQuery.data;
+  const canPrepare = hasPermission(session?.user.roles, "analysis.prepare");
 
   if (projectQuery.isPending) {
     return (
@@ -81,13 +89,23 @@ export function ProjectOverviewPage() {
   }
 
   const isOwner = project.ownerUserId === session?.user.id;
-  const quickActions = [
+  const quickActions: Array<{
+    title: string;
+    description: string;
+    to: string;
+    icon: typeof FileStack;
+    number: string;
+    permission: Permission | readonly Permission[];
+  }> = [
     {
-      title: "Add source documents",
-      description: "Bring relevant material into this project.",
+      title: canPrepare ? "Add source documents" : "Review source documents",
+      description: canPrepare
+        ? "Bring relevant material into this project."
+        : "Review the evidence available to your project.",
       to: "documents",
       icon: FileStack,
       number: "01",
+      permission: "project.business.read",
     },
     {
       title: "Review requirements",
@@ -95,6 +113,7 @@ export function ProjectOverviewPage() {
       to: "requirements",
       icon: ListChecks,
       number: "02",
+      permission: "project.business.read",
     },
     {
       title: "Run an analysis",
@@ -102,13 +121,17 @@ export function ProjectOverviewPage() {
       to: "workflows",
       icon: Sparkles,
       number: "03",
+      permission: "analysis.prepare",
     },
     {
-      title: "Create a deliverable",
-      description: "Shape requirements into a useful team artifact.",
+      title: canPrepare ? "Create a deliverable" : "Review deliverables",
+      description: canPrepare
+        ? "Shape requirements into a useful team artifact."
+        : "Inspect business or delivery artifacts in this project.",
       to: "artifacts",
       icon: ArrowUpRight,
       number: "04",
+      permission: ["project.business.read", "project.delivery.read"],
     },
     {
       title: "Export project data",
@@ -116,6 +139,23 @@ export function ProjectOverviewPage() {
       to: "exports",
       icon: Download,
       number: "05",
+      permission: "project.export",
+    },
+    {
+      title: "Review approvals",
+      description: "Make the human approval decision for submitted work.",
+      to: "approvals",
+      icon: ShieldCheck,
+      number: "06",
+      permission: "approval.decide_business",
+    },
+    {
+      title: "Delivery reviews",
+      description: "Provide delivery feedback without deciding approvals.",
+      to: "delivery-reviews",
+      icon: MessageSquareText,
+      number: "07",
+      permission: "delivery.review",
     },
   ];
 
@@ -204,24 +244,30 @@ export function ProjectOverviewPage() {
       </div>
 
       <div className="project-action-grid">
-        {quickActions.map(({ title, description, to, icon: Icon, number }) => (
-          <Link
-            className="project-action"
-            key={to}
-            to={`/app/projects/${encodeURIComponent(project.id)}/${to}`}
-          >
-            <span className="project-action__number">{number}</span>
-            <span className="project-action__icon">
-              <Icon aria-hidden="true" size={18} />
-            </span>
-            <strong>{title}</strong>
-            <span className="project-action__description">{description}</span>
-            <span className="project-action__link">
-              Open section
-              <ArrowRight aria-hidden="true" size={14} />
-            </span>
-          </Link>
-        ))}
+        {quickActions
+          .filter(({ permission }) =>
+            typeof permission === "string"
+              ? hasPermission(session?.user.roles, permission)
+              : hasAnyPermission(session?.user.roles, permission),
+          )
+          .map(({ title, description, to, icon: Icon, number }) => (
+            <Link
+              className="project-action"
+              key={to}
+              to={`/app/projects/${encodeURIComponent(project.id)}/${to}`}
+            >
+              <span className="project-action__number">{number}</span>
+              <span className="project-action__icon">
+                <Icon aria-hidden="true" size={18} />
+              </span>
+              <strong>{title}</strong>
+              <span className="project-action__description">{description}</span>
+              <span className="project-action__link">
+                Open section
+                <ArrowRight aria-hidden="true" size={14} />
+              </span>
+            </Link>
+          ))}
       </div>
     </section>
   );

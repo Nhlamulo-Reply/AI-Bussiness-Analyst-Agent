@@ -151,7 +151,8 @@ export function ApprovalWorkspacePage() {
           <p className="eyebrow">PROJECT REVIEW</p>
           <h1 id="approval-workspace-title">Approvals</h1>
           <p className="page-heading__description">
-            Review submitted requirements and deliverables for this project.
+            Review submissions for this project and record the human approval
+            decision. AI agents can prepare drafts but cannot approve them.
           </p>
         </div>
         <Badge tone={canReview ? "accent" : "warning"}>
@@ -163,8 +164,8 @@ export function ApprovalWorkspacePage() {
         <Card>
           <EmptyState
             icon={ShieldCheck}
-            title="Product Owner or administrator role required"
-            description="Ask a project administrator to assign you the Product Owner role. You must also have access to this project."
+            title="Product Owner role required"
+            description="Ask an administrator to assign you the Product Owner role. You must also have access to this project. Administrators do not approve project requirements."
           />
         </Card>
       ) : (

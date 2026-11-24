@@ -6,10 +6,13 @@ import {
   Layers3,
   LayoutDashboard,
   LogOut,
+  MessageSquareText,
   Menu,
+  Moon,
   ShieldCheck,
   Settings,
   Sparkles,
+  Sun,
   UserRound,
   Workflow,
   X,
@@ -28,12 +31,37 @@ import { getRoleLabel } from "../../features/auth/role-label";
 import { Badge } from "../ui/Badge";
 import { Dialog } from "../ui/Dialog";
 import { IconButton } from "../ui/IconButton";
-import { hasPermission } from "../../features/auth/permissions";
+import {
+  hasAnyPermission,
+  hasPermission,
+} from "../../features/auth/permissions";
 import type { Permission } from "../../features/auth/permissions";
+import {
+  getInitialTheme,
+  setThemePreference,
+  type Theme,
+} from "../../features/theme/theme";
 
-const workspaceLinks = [
-  { label: "Overview", to: "/app", icon: LayoutDashboard, end: true },
-  { label: "Projects", to: "/app/projects", icon: BriefcaseBusiness },
+const workspaceLinks: Array<{
+  label: string;
+  to: string;
+  icon: typeof LayoutDashboard;
+  end?: boolean;
+  permission: Permission | readonly Permission[];
+}> = [
+  {
+    label: "Overview",
+    to: "/app",
+    icon: LayoutDashboard,
+    end: true,
+    permission: "project.read",
+  },
+  {
+    label: "Projects",
+    to: "/app/projects",
+    icon: BriefcaseBusiness,
+    permission: "project.read",
+  },
 ];
 
 const projectLinks: Array<{
@@ -41,15 +69,57 @@ const projectLinks: Array<{
   suffix: string;
   icon: typeof LayoutDashboard;
   end?: boolean;
-  permission: Permission | null;
+  permission: Permission | readonly Permission[];
 }> = [
-  { label: "Overview", suffix: "", icon: LayoutDashboard, end: true, permission: null },
-  { label: "Documents", suffix: "/documents", icon: Files, permission: "project.read" },
-  { label: "Requirements", suffix: "/requirements", icon: Layers3, permission: "project.read" },
-  { label: "AI workflows", suffix: "/workflows", icon: Workflow, permission: "analysis.prepare" },
-  { label: "Deliverables", suffix: "/artifacts", icon: Sparkles, permission: "project.read" },
-  { label: "Approvals", suffix: "/approvals", icon: ShieldCheck, permission: "approval.decide_business" },
-  { label: "Exports", suffix: "/exports", icon: ArrowUpRight, permission: "project.read" },
+  {
+    label: "Overview",
+    suffix: "",
+    icon: LayoutDashboard,
+    end: true,
+    permission: "project.read",
+  },
+  {
+    label: "Documents",
+    suffix: "/documents",
+    icon: Files,
+    permission: "project.business.read",
+  },
+  {
+    label: "Requirements",
+    suffix: "/requirements",
+    icon: Layers3,
+    permission: "project.business.read",
+  },
+  {
+    label: "AI workflows",
+    suffix: "/workflows",
+    icon: Workflow,
+    permission: "analysis.prepare",
+  },
+  {
+    label: "Deliverables",
+    suffix: "/artifacts",
+    icon: Sparkles,
+    permission: ["project.business.read", "project.delivery.read"],
+  },
+  {
+    label: "Approvals",
+    suffix: "/approvals",
+    icon: ShieldCheck,
+    permission: "approval.decide_business",
+  },
+  {
+    label: "Delivery reviews",
+    suffix: "/delivery-reviews",
+    icon: MessageSquareText,
+    permission: "delivery.review",
+  },
+  {
+    label: "Exports",
+    suffix: "/exports",
+    icon: ArrowUpRight,
+    permission: "project.export",
+  },
 ];
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
@@ -60,20 +130,26 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav aria-label="Main navigation" className="sidebar__navigation">
       <p className="sidebar__label">Workspace</p>
-      {workspaceLinks.map(({ label, to, icon: Icon, end }) => (
-        <NavLink
-          className={({ isActive }) =>
-            `nav-link ${isActive ? "nav-link--active" : ""}`
-          }
-          end={end}
-          key={to}
-          onClick={onNavigate}
-          to={to}
-        >
-          <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-          <span>{label}</span>
-        </NavLink>
-      ))}
+      {workspaceLinks
+        .filter(({ permission }) =>
+          typeof permission === "string"
+            ? hasPermission(session?.user.roles, permission)
+            : hasAnyPermission(session?.user.roles, permission),
+        )
+        .map(({ label, to, icon: Icon, end }) => (
+          <NavLink
+            className={({ isActive }) =>
+              `nav-link ${isActive ? "nav-link--active" : ""}`
+            }
+            end={end}
+            key={to}
+            onClick={onNavigate}
+            to={to}
+          >
+            <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+            <span>{label}</span>
+          </NavLink>
+        ))}
       {isAdmin ? (
         <NavLink
           className={({ isActive }) =>
@@ -87,15 +163,16 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         </NavLink>
       ) : null}
 
-      {projectId ? (
+      {projectId && hasPermission(session?.user.roles, "project.read") ? (
         <>
           <p className="sidebar__label sidebar__label--project">
             Current project
           </p>
           {projectLinks
             .filter(({ permission }) =>
-              permission === null ||
-              hasPermission(session?.user.roles, permission),
+              typeof permission === "string"
+                ? hasPermission(session?.user.roles, permission)
+                : hasAnyPermission(session?.user.roles, permission),
             )
             .map(({ label, suffix, icon: Icon, end }) => (
               <NavLink
@@ -134,6 +211,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const { session, signOut } = useAuth();
   const user = session?.user;
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [menuState, setMenuState] = useState({
     open: false,
     locationKey: location.key,
@@ -143,11 +221,24 @@ export function AppShell() {
     setMenuState({ open, locationKey: location.key });
   };
   const pageTitle = getPageTitle(location.pathname);
-  const roleLabel = user?.roles[0] ? getRoleLabel(user.roles[0]) : "Member";
+  const roleLabel = hasPermission(user?.roles, "admin.users")
+    ? getRoleLabel("admin")
+    : user?.roles[0]
+      ? getRoleLabel(user.roles[0])
+      : "Member";
+  const profileRoles = hasPermission(user?.roles, "admin.users")
+    ? [getRoleLabel("admin")]
+    : (user?.roles.map(getRoleLabel) ?? []);
 
   const handleSignOut = () => {
     signOut();
     navigate("/login", { replace: true });
+  };
+
+  const handleThemeToggle = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    setThemePreference(nextTheme);
   };
 
   return (
@@ -175,7 +266,7 @@ export function AppShell() {
               </span>
               <span className="profile-link__copy">
                 <strong title={user?.email}>{user?.email}</strong>
-                <small>{user?.roles.map(getRoleLabel).join(" · ")}</small>
+                <small>{profileRoles.join(" · ")}</small>
               </span>
               <span className="visually-hidden">View profile</span>
             </Link>
@@ -203,6 +294,18 @@ export function AppShell() {
             <strong>{pageTitle}</strong>
           </div>
           <div className="topbar__right">
+            <IconButton
+              aria-pressed={theme === "dark"}
+              className="topbar__theme-toggle"
+              label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+              onClick={handleThemeToggle}
+            >
+              {theme === "light" ? (
+                <Moon aria-hidden="true" size={17} />
+              ) : (
+                <Sun aria-hidden="true" size={17} />
+              )}
+            </IconButton>
             <Badge tone="accent">{roleLabel}</Badge>
             <span aria-hidden="true" className="topbar__divider" />
             <span className="topbar__avatar" title={user?.email}>
@@ -244,7 +347,7 @@ export function AppShell() {
             </span>
             <span className="profile-link__copy">
               <strong title={user?.email}>{user?.email}</strong>
-              <small>{user?.roles.map(getRoleLabel).join(" · ")}</small>
+              <small>{profileRoles.join(" · ")}</small>
             </span>
           </Link>
           <IconButton label="Sign out" onClick={handleSignOut}>
@@ -264,6 +367,7 @@ function getPageTitle(pathname: string) {
   if (pathname.endsWith("/workflows")) return "AI workflows";
   if (pathname.endsWith("/artifacts")) return "Deliverables";
   if (pathname.endsWith("/approvals")) return "Approvals";
+  if (pathname.endsWith("/delivery-reviews")) return "Delivery reviews";
   if (pathname.endsWith("/exports")) return "Exports";
   if (pathname === "/app/profile") return "Profile";
   if (pathname === "/app/admin") return "Administration";

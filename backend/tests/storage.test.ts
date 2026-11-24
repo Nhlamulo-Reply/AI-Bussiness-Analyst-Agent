@@ -51,6 +51,7 @@ describe("JsonFileStorage", () => {
         passwordHash: "bcrypt-hash",
         roles: ["business_analyst"],
         active: true,
+        sessionVersion: 0,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },

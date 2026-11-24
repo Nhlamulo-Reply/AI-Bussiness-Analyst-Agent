@@ -1,7 +1,11 @@
 import bcrypt from "bcryptjs";
 import { sign } from "jsonwebtoken";
 import { AppError } from "../../common/errors/app-error";
-import { DuplicateUserError, type UserRepository } from "./user.repository";
+import {
+  DuplicateUserError,
+  normalizeUserRoles,
+  type UserRepository,
+} from "./user.repository";
 
 export interface AuthConfig {
   jwtSecret: string;
@@ -57,14 +61,15 @@ export class AuthService {
     roles: Array<"business_analyst" | "product_owner" | "delivery_lead" | "admin">;
     sessionVersion: number;
   }): { accessToken: string; user: AuthUser } {
+    const roles = normalizeUserRoles(user.roles);
     const accessToken = sign(
-      { roles: user.roles, email: user.email, sessionVersion: user.sessionVersion },
+      { roles, email: user.email, sessionVersion: user.sessionVersion },
       this.config.jwtSecret,
       { subject: user.id, expiresIn: this.config.jwtTtlSeconds }
     );
     return {
       accessToken,
-      user: { id: user.id, email: user.email, roles: user.roles }
+      user: { id: user.id, email: user.email, roles }
     };
   }
 }

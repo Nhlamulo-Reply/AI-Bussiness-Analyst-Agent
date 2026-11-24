@@ -1,23 +1,28 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
+import type { AppConfig } from "../../config/env";
 import {
+  InvalidUserRolesError,
   DuplicateTemplateError,
   LastActiveAdminError,
   type Storage,
 } from "../../config/storage";
+import { DuplicateUserError } from "../auth/user.repository";
 import { AppError } from "../../common/errors/app-error";
-import {
-  authenticate,
-  requireRoles,
-} from "../../common/middleware/authentication";
+import { authenticate } from "../../common/middleware/authentication";
 import {
   getAuthenticatedUser,
   getRouteParam,
 } from "../../common/middleware/current-user";
 import { parsePagination } from "../../common/utils/pagination";
 import { validateBody } from "../../common/middleware/validation";
-import { templateTypeSchema } from "../domain/domain.schemas";
+import {
+  projectMembersBodySchema,
+  templateTypeSchema,
+} from "../domain/domain.schemas";
+import { hasExclusiveAdminRole, userRoles } from "../auth/user.repository";
+import { requirePermission } from "../../common/middleware/authorization";
 
 const activeStatusSchema = z.object({ active: z.boolean() }).strict();
 const createTemplateSchema = z
@@ -40,11 +45,32 @@ const updateTemplateSchema = z
     message: "Provide at least one template field to update.",
   });
 
-export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
-  const router = Router();
-  router.use(authenticate(jwtSecret, storage), requireRoles("admin"));
+const invitationSchema = z
+  .object({
+    email: z.string().trim().pipe(z.email()),
+    roles: z
+      .array(z.enum(userRoles))
+      .min(1)
+      .max(userRoles.length)
+      .refine((roles) => new Set(roles).size === roles.length),
+  })
+  .strict()
+  .refine(
+    ({ roles }) => hasExclusiveAdminRole(roles),
+    "Administrator accounts cannot be combined with project roles.",
+  );
 
-  router.get("/users", async (request, response, next) => {
+export function createAdminRouter(
+  storage: Storage,
+  config: Pick<
+    AppConfig,
+    "jwtSecret" | "passwordResetTtlSeconds" | "passwordResetFrontendUrl"
+  >,
+): Router {
+  const router = Router();
+  router.use(authenticate(config.jwtSecret, storage));
+
+  router.get("/users", requirePermission("admin.users"), async (request, response, next) => {
     try {
       const { page, limit } = parsePagination(request.query);
       const users = await storage.listUsers(page, limit);
@@ -56,8 +82,73 @@ export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
     }
   });
 
+  router.post(
+    "/users/invitations",
+    requirePermission("admin.users"),
+    validateBody(invitationSchema),
+    async (request, response, next) => {
+      try {
+        const actor = getAuthenticatedUser(request);
+        const rawToken = randomBytes(32).toString("base64url");
+        const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+        const ttl = config.passwordResetTtlSeconds ?? 900;
+        const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+        const setupUrl = new URL(
+          config.passwordResetFrontendUrl ??
+            "http://localhost:5173/reset-password",
+        );
+        setupUrl.searchParams.set("token", rawToken);
+        const invitation = await storage.createInvitedUser({
+          email: request.body.email.trim().toLowerCase(),
+          roles: request.body.roles,
+          tokenHash,
+          expiresAt,
+          actorUserId: actor.id,
+        });
+        response.status(invitation.resent ? 200 : 201).json({
+          success: true,
+          data: {
+            user: {
+              id: invitation.user.id,
+              email: invitation.user.email,
+              roles: invitation.user.roles,
+              active: invitation.user.active,
+            },
+            invitationUrl: setupUrl.toString(),
+            expiresAt,
+            invitationResent: invitation.resent,
+          },
+          requestId: request.id,
+        });
+      } catch (error) {
+        if (error instanceof DuplicateUserError) {
+          next(
+            new AppError(
+              409,
+              "EMAIL_ALREADY_REGISTERED",
+              "An account with this email already exists.",
+            ),
+          );
+          return;
+        }
+        if (error instanceof InvalidUserRolesError) {
+          next(
+            new AppError(
+              400,
+              "VALIDATION_ERROR",
+              error.message,
+            ),
+          );
+          return;
+        }
+        next(error);
+      }
+    },
+  );
+
   router.patch(
     "/users/:id/active",
+    requirePermission("admin.users"),
     validateBody(activeStatusSchema),
     async (request, response, next) => {
       try {
@@ -98,7 +189,82 @@ export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
     },
   );
 
-  router.get("/templates", async (request, response, next) => {
+  router.get(
+    "/project-access",
+    requirePermission("admin.project_access"),
+    async (request, response, next) => {
+      try {
+        const { page, limit } = parsePagination(request.query);
+        const projects = await storage.listProjectAccess(page, limit);
+        response
+          .status(200)
+          .json({ success: true, data: projects, requestId: request.id });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.put(
+    "/project-access/:id/members",
+    requirePermission("admin.project_access"),
+    validateBody(projectMembersBodySchema),
+    async (request, response, next) => {
+      try {
+        const actor = getAuthenticatedUser(request);
+        const projectId = getRouteParam(request, "id");
+        const project = await storage.getProject(projectId);
+        if (!project) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        for (const memberId of request.body.memberIds as string[]) {
+          const member = await storage.findById(memberId);
+          if (
+            !member ||
+            !member.active ||
+            member.roles.length === 0 ||
+            member.roles.includes("admin")
+          ) {
+            throw new AppError(
+              400,
+              "VALIDATION_ERROR",
+              "Project members must be active non-administrator users.",
+              [
+                {
+                  field: "memberIds",
+                  reason:
+                    "Every member must have an active project role and cannot be an administrator",
+                },
+              ],
+            );
+          }
+        }
+        const updated = await storage.replaceProjectMembers(
+          projectId,
+          request.body.memberIds as string[],
+          actor.id,
+        );
+        if (!updated) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        response.status(200).json({
+          success: true,
+          data: {
+            id: updated.id,
+            name: updated.name,
+            status: updated.status,
+            ownerUserId: updated.ownerUserId,
+            memberIds: updated.members,
+          },
+          requestId: request.id,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.get("/templates", requirePermission("admin.templates"), async (request, response, next) => {
     try {
       const templates = await storage.listTemplates();
       response
@@ -111,6 +277,7 @@ export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
 
   router.post(
     "/templates",
+    requirePermission("admin.templates"),
     validateBody(createTemplateSchema),
     async (request, response, next) => {
       try {
@@ -139,6 +306,7 @@ export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
 
   router.patch(
     "/templates/:id",
+    requirePermission("admin.templates"),
     validateBody(updateTemplateSchema),
     async (request, response, next) => {
       try {
@@ -164,7 +332,7 @@ export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
     },
   );
 
-  router.get("/audit-events/export", async (request, response, next) => {
+  router.get("/audit-events/export", requirePermission("admin.audit"), async (request, response, next) => {
     try {
       const format = request.query.format ?? "json";
       if (format !== "json" && format !== "csv") {
@@ -194,7 +362,7 @@ export function createAdminRouter(storage: Storage, jwtSecret: string): Router {
     }
   });
 
-  router.get("/audit-events", async (request, response, next) => {
+  router.get("/audit-events", requirePermission("admin.audit"), async (request, response, next) => {
     try {
       const { page, limit } = parsePagination(request.query);
       const events = await storage.listAuditEvents(page, limit);

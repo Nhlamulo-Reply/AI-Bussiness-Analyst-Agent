@@ -63,7 +63,10 @@ export function createWorkflowRouter(storage: Storage, jwtSecret: string, workfl
     );
   }
 
-  router.get("/executions/:id", async (request, response, next) => {
+  router.get(
+    "/executions/:id",
+    requirePermission("analysis.prepare"),
+    async (request, response, next) => {
     try {
       const user = getAuthenticatedUser(request);
       const execution = await storage.getExecution(getRouteParam(request, "id"));
@@ -74,7 +77,8 @@ export function createWorkflowRouter(storage: Storage, jwtSecret: string, workfl
     } catch (error) {
       next(error);
     }
-  });
+    },
+  );
 
   return router;
 }

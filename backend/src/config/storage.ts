@@ -14,8 +14,11 @@ import { z } from "zod";
 import type { AppConfig } from "./env";
 import {
   DuplicateUserError,
+  hasExclusiveAdminRole,
+  normalizeUserRoles,
   type UserRecord,
   type UserRepository,
+  type UserRole,
 } from "../modules/auth/user.repository";
 import type { ProjectRepository } from "../common/middleware/project-access";
 import {
@@ -96,6 +99,7 @@ const storageFileSchema = z
           id: z.string().min(1),
           userId: z.string().min(1),
           tokenHash: z.string().min(64).max(64),
+          purpose: z.enum(["password_reset", "invitation"]).default("password_reset"),
           expiresAt: z.string(),
           usedAt: z.string().optional(),
           createdAt: z.string(),
@@ -131,6 +135,23 @@ export type FirstAdminBootstrapResult =
   | { status: "already_configured" }
   | { status: "user_not_found" };
 
+export interface AdminUserRecord {
+  id: string;
+  email: string;
+  roles: UserRole[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectAccessRecord {
+  id: string;
+  name: string;
+  status: ProjectRecord["status"];
+  ownerUserId: string;
+  memberIds: string[];
+}
+
 export type ProjectPatch = Partial<
   Pick<
     ProjectRecord,
@@ -154,6 +175,13 @@ export class LastActiveAdminError extends Error {
   constructor() {
     super("The last active administrator cannot be deactivated or demoted.");
     this.name = "LastActiveAdminError";
+  }
+}
+
+export class InvalidUserRolesError extends Error {
+  constructor() {
+    super("Administrator accounts cannot be combined with project roles.");
+    this.name = "InvalidUserRolesError";
   }
 }
 
@@ -204,6 +232,13 @@ export interface Storage extends ProjectRepository {
     tokenHash: string,
     expiresAt: string,
   ): Promise<void>;
+  createInvitedUser(input: {
+    email: string;
+    roles: UserRole[];
+    tokenHash: string;
+    expiresAt: string;
+    actorUserId: string;
+  }): Promise<{ user: UserRecord; resent: boolean }>;
   consumePasswordResetToken(
     tokenHash: string,
     passwordHash: string,
@@ -223,7 +258,11 @@ export interface Storage extends ProjectRepository {
   listUsers(
     page: number,
     limit: number,
-  ): Promise<Page<Omit<UserRecord, "passwordHash">>>;
+  ): Promise<Page<AdminUserRecord>>;
+  listProjectAccess(
+    page: number,
+    limit: number,
+  ): Promise<Page<ProjectAccessRecord>>;
   listAuditEvents(page: number, limit: number): Promise<Page<AuditEventRecord>>;
   exportAuditEvents(actorUserId: string): Promise<AuditEventRecord[]>;
   listTemplates(activeOnly?: boolean, type?: TemplateType): Promise<TemplateRecord[]>;
@@ -254,6 +293,7 @@ export interface Storage extends ProjectRepository {
   replaceProjectMembers(
     projectId: string,
     memberIds: string[],
+    actorUserId: string,
   ): Promise<ProjectRecord | null>;
   createDocument(document: DocumentRecord): Promise<DocumentRecord>;
   getDocument(documentId: string): Promise<DocumentRecord | null>;
@@ -313,6 +353,7 @@ export interface Storage extends ProjectRepository {
     projectId: string,
     page: number,
     limit: number,
+    allowedTypes?: ArtifactRecord["type"][],
   ): Promise<Page<ArtifactRecord>>;
   createApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   getApproval(approvalId: string): Promise<ApprovalRecord | null>;
@@ -321,6 +362,7 @@ export interface Storage extends ProjectRepository {
     page: number,
     limit: number,
     decision?: ApprovalDecision,
+    artifactTypes?: ApprovalArtifactType[],
   ): Promise<Page<ApprovalRecord>>;
   decideApproval(
     approvalId: string,
@@ -463,19 +505,25 @@ export class JsonFileStorage
 
   async findByEmail(email: string): Promise<UserRecord | null> {
     const user = this.getState().users.find((record) => record.email === email);
-    return user ? structuredClone(user) : null;
+    return user
+      ? { ...structuredClone(user), roles: normalizeUserRoles(user.roles) }
+      : null;
   }
 
   async findById(userId: string): Promise<UserRecord | null> {
     const user = this.getState().users.find((record) => record.id === userId);
-    return user ? structuredClone(user) : null;
+    return user
+      ? { ...structuredClone(user), roles: normalizeUserRoles(user.roles) }
+      : null;
   }
 
   async findByGoogleSubject(subject: string): Promise<UserRecord | null> {
     const user = this.getState().users.find(
       (record) => record.googleSubject === subject,
     );
-    return user ? structuredClone(user) : null;
+    return user
+      ? { ...structuredClone(user), roles: normalizeUserRoles(user.roles) }
+      : null;
   }
 
   async recordGoogleLogin(userId: string): Promise<void> {
@@ -553,6 +601,7 @@ export class JsonFileStorage
         id: randomUUID(),
         userId,
         tokenHash,
+        purpose: "password_reset",
         expiresAt,
         createdAt: new Date().toISOString(),
       });
@@ -577,8 +626,14 @@ export class JsonFileStorage
       if (token.usedAt) return "used";
       if (new Date(token.expiresAt).getTime() <= Date.now()) return "expired";
       const user = state.users.find((record) => record.id === token.userId);
-      if (!user || !user.active) return "inactive";
-      if (!user.passwordHash) return "inactive";
+      if (!user) return "inactive";
+      const isInvitation = token.purpose === "invitation";
+      if (
+        (isInvitation && (user.active || user.passwordHash)) ||
+        (!isInvitation && (!user.active || !user.passwordHash))
+      ) {
+        return "inactive";
+      }
 
       token.usedAt = new Date().toISOString();
       for (const siblingToken of state.passwordResetTokens) {
@@ -587,11 +642,16 @@ export class JsonFileStorage
         }
       }
       user.passwordHash = passwordHash;
+      if (isInvitation) {
+        user.active = true;
+      }
       user.sessionVersion = (user.sessionVersion ?? 0) + 1;
       user.updatedAt = new Date().toISOString();
       appendAuditEvent(state, {
         actorUserId: user.id,
-        action: "password_reset.completed",
+        action: isInvitation
+          ? "user.invitation_accepted"
+          : "password_reset.completed",
         resourceType: "user",
         resourceId: user.id,
       });
@@ -613,6 +673,12 @@ export class JsonFileStorage
     roles: UserRecord["roles"],
     actorUserId?: string,
   ): Promise<UserRecord | null> {
+    if (
+      !hasExclusiveAdminRole(roles) ||
+      new Set(roles).size !== roles.length
+    ) {
+      throw new InvalidUserRolesError();
+    }
     return this.update((state) => {
       const user = state.users.find((record) => record.id === userId);
       if (!user) {
@@ -633,6 +699,9 @@ export class JsonFileStorage
         throw new LastActiveAdminError();
       }
       user.roles = roles;
+      if (JSON.stringify(previousRoles) !== JSON.stringify(roles)) {
+        user.sessionVersion = (user.sessionVersion ?? 0) + 1;
+      }
       user.updatedAt = new Date().toISOString();
       if (
         actorUserId &&
@@ -676,6 +745,9 @@ export class JsonFileStorage
       }
       const wasActive = user.active;
       user.active = active;
+      if (wasActive !== active) {
+        user.sessionVersion = (user.sessionVersion ?? 0) + 1;
+      }
       user.updatedAt = new Date().toISOString();
       if (wasActive !== active) {
         appendAuditEvent(state, {
@@ -687,7 +759,7 @@ export class JsonFileStorage
           after: { active },
         });
       }
-      return user;
+      return { ...user, roles: normalizeUserRoles(user.roles) };
     });
   }
 
@@ -708,10 +780,8 @@ export class JsonFileStorage
         return { status: "user_not_found" };
       }
       const previousRoles = [...user.roles];
-      const nextRoles: UserRecord["roles"] = [
-        ...new Set<UserRecord["roles"][number]>([...user.roles, "admin"]),
-      ];
-      user.roles = nextRoles;
+      user.roles = ["admin"];
+      user.sessionVersion = (user.sessionVersion ?? 0) + 1;
       user.updatedAt = new Date().toISOString();
       appendAuditEvent(state, {
         actorUserId: userId,
@@ -728,11 +798,30 @@ export class JsonFileStorage
   async listUsers(
     page: number,
     limit: number,
-  ): Promise<Page<Omit<UserRecord, "passwordHash">>> {
-    const users = this.getState().users.map(
-      ({ passwordHash: _passwordHash, ...user }) => user,
-    );
+  ): Promise<Page<AdminUserRecord>> {
+    const users = this.getState().users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      roles: normalizeUserRoles(user.roles),
+      active: user.active,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    }));
     return makePage(users, page, limit);
+  }
+
+  async listProjectAccess(
+    page: number,
+    limit: number,
+  ): Promise<Page<ProjectAccessRecord>> {
+    const projects = this.getState().projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      ownerUserId: project.ownerUserId,
+      memberIds: [...project.members],
+    }));
+    return makePage(projects, page, limit);
   }
 
   async listAuditEvents(
@@ -953,6 +1042,7 @@ export class JsonFileStorage
   replaceProjectMembers(
     projectId: string,
     memberIds: string[],
+    actorUserId: string,
   ): Promise<ProjectRecord | null> {
     return this.update((state) => {
       const project = state.projects.find((record) => record.id === projectId);
@@ -972,13 +1062,13 @@ export class JsonFileStorage
         project.members = nextMembers;
         project.updatedAt = new Date().toISOString();
         appendAuditEvent(state, {
-          actorUserId: project.ownerUserId,
+          actorUserId,
           action: "project.members_changed",
           resourceType: "project",
           resourceId: projectId,
           projectId,
-          before: { memberCount: previousMembers.length },
-          after: { memberCount: nextMembers.length },
+          before: { memberIds: previousMembers },
+          after: { memberIds: nextMembers },
         });
       }
       return project;
@@ -1245,10 +1335,13 @@ export class JsonFileStorage
     projectId: string,
     page: number,
     limit: number,
+    allowedTypes?: ArtifactRecord["type"][],
   ): Promise<Page<ArtifactRecord>> {
     return makePage(
       this.getState().artifacts.filter(
-        (artifact) => artifact.projectId === projectId,
+        (artifact) =>
+          artifact.projectId === projectId &&
+          (!allowedTypes || allowedTypes.includes(artifact.type)),
       ),
       page,
       limit,
@@ -1450,12 +1543,14 @@ export class JsonFileStorage
     page: number,
     limit: number,
     decision?: ApprovalDecision,
+    artifactTypes?: ApprovalArtifactType[],
   ): Promise<Page<ApprovalRecord>> {
     const approvals = this.getState()
       .approvals.filter(
         (approval) =>
           approval.projectId === projectId &&
-          (decision === undefined || approval.decision === decision),
+          (decision === undefined || approval.decision === decision) &&
+          (!artifactTypes || artifactTypes.includes(approval.artifactType)),
       )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     return makePage(approvals, page, limit);
@@ -1636,6 +1731,12 @@ export class JsonFileStorage
       sessionVersion?: number;
     },
   ): Promise<UserRecord> {
+    if (
+      !hasExclusiveAdminRole(user.roles) ||
+      new Set(user.roles).size !== user.roles.length
+    ) {
+      throw new InvalidUserRolesError();
+    }
     return this.update((state) => {
       if (state.users.some((record) => record.email === user.email)) {
         throw new DuplicateUserError();
@@ -1659,6 +1760,94 @@ export class JsonFileStorage
         after: { email: record.email },
       });
       return record;
+    });
+  }
+
+  createInvitedUser(input: {
+    email: string;
+    roles: UserRole[];
+    tokenHash: string;
+    expiresAt: string;
+    actorUserId: string;
+  }): Promise<{ user: UserRecord; resent: boolean }> {
+    if (
+      !hasExclusiveAdminRole(input.roles) ||
+      new Set(input.roles).size !== input.roles.length
+    ) {
+      throw new InvalidUserRolesError();
+    }
+    return this.update((state) => {
+      const now = new Date().toISOString();
+      const existing = state.users.find(
+        (record) => record.email === input.email,
+      );
+      if (existing) {
+        const hasInvitation = state.passwordResetTokens.some(
+          (token) =>
+            token.userId === existing.id && token.purpose === "invitation",
+        );
+        if (existing.active || existing.passwordHash || !hasInvitation) {
+          throw new DuplicateUserError();
+        }
+        const previousRoles = [...existing.roles];
+        existing.roles = [...input.roles];
+        existing.updatedAt = now;
+        state.passwordResetTokens = state.passwordResetTokens.map((token) =>
+          token.userId === existing.id && !token.usedAt
+            ? { ...token, usedAt: now }
+            : token,
+        );
+        state.passwordResetTokens.push({
+          id: randomUUID(),
+          userId: existing.id,
+          tokenHash: input.tokenHash,
+          purpose: "invitation",
+          expiresAt: input.expiresAt,
+          createdAt: now,
+        });
+        appendAuditEvent(state, {
+          actorUserId: input.actorUserId,
+          action: "user.invitation_resent",
+          resourceType: "user",
+          resourceId: existing.id,
+          before: { roles: previousRoles },
+          after: { email: existing.email, roles: [...existing.roles] },
+        });
+        return {
+          user: { ...existing, roles: normalizeUserRoles(existing.roles) },
+          resent: true,
+        };
+      }
+
+      const user: UserRecord = {
+        id: randomUUID(),
+        email: input.email,
+        roles: [...input.roles],
+        active: false,
+        sessionVersion: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      state.users.push({
+        ...user,
+        sessionVersion: user.sessionVersion ?? 0,
+      });
+      state.passwordResetTokens.push({
+        id: randomUUID(),
+        userId: user.id,
+        tokenHash: input.tokenHash,
+        purpose: "invitation",
+        expiresAt: input.expiresAt,
+        createdAt: now,
+      });
+      appendAuditEvent(state, {
+        actorUserId: input.actorUserId,
+        action: "user.invited",
+        resourceType: "user",
+        resourceId: user.id,
+        after: { email: user.email, roles: [...user.roles] },
+      });
+      return { user, resent: false };
     });
   }
 

@@ -5,10 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   claimFirstAdmin,
   createAdminTemplate,
+  inviteAdminUser,
+  listAdminProjectAccess,
   listAdminTemplates,
   listAdminAuditEvents,
   listAdminUsers,
   updateAdminUserActive,
+  updateAdminProjectMembers,
   updateAdminUserRoles,
 } from "../features/admin/admin-api";
 import type { AdminUser } from "../features/admin/admin.schemas";
@@ -18,10 +21,13 @@ import { AdminPage } from "./AdminPage";
 vi.mock("../features/admin/admin-api", () => ({
   claimFirstAdmin: vi.fn(),
   createAdminTemplate: vi.fn(),
+  inviteAdminUser: vi.fn(),
   listAdminAuditEvents: vi.fn(),
+  listAdminProjectAccess: vi.fn(),
   listAdminTemplates: vi.fn(),
   listAdminUsers: vi.fn(),
   updateAdminUserActive: vi.fn(),
+  updateAdminProjectMembers: vi.fn(),
   updateAdminUserRoles: vi.fn(),
 }));
 
@@ -32,7 +38,7 @@ vi.mock("../features/auth/useAuth", () => ({
 const adminUser: AdminUser = {
   id: "admin-1",
   email: "admin@example.test",
-  roles: ["business_analyst", "admin"],
+  roles: ["admin"],
   active: true,
   createdAt: "2026-03-04T05:06:07.000Z",
   updatedAt: "2026-03-04T05:06:07.000Z",
@@ -71,13 +77,19 @@ function renderAdminPage(isAdmin: boolean) {
 describe("AdminPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(listAdminProjectAccess).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
   });
 
   it("offers a one-time bootstrap claim to authenticated non-admin users", async () => {
     vi.mocked(claimFirstAdmin).mockResolvedValue({
       id: "admin-1",
       email: "admin@example.test",
-      roles: ["business_analyst", "admin"],
+      roles: ["admin"],
       requiresLogin: true,
     });
     renderAdminPage(false);
@@ -124,9 +136,9 @@ describe("AdminPage", () => {
     expect(await screen.findByText("member@example.test")).toBeInTheDocument();
     expect(screen.getByText("Audit history")).toBeInTheDocument();
     await user.click(
-      screen.getByRole("checkbox", {
-        name: "product_owner",
-      }),
+      screen.getAllByRole("checkbox", {
+        name: "Product Owner / Stakeholder",
+      })[0],
     );
     await user.click(screen.getAllByRole("button", { name: "Save roles" })[0]);
 
@@ -221,5 +233,104 @@ describe("AdminPage", () => {
         instructions: "Cite source evidence.",
       }),
     );
+  });
+
+  it("creates a copyable invitation for a project role", async () => {
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser],
+      page: 1,
+      limit: 100,
+      total: 1,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    vi.mocked(inviteAdminUser).mockResolvedValue({
+      user: {
+        id: "invitee-1",
+        email: "new@example.test",
+        roles: ["business_analyst", "product_owner"],
+        active: false,
+      },
+      invitationUrl:
+        "https://app.example.test/reset-password?token=one-time-token",
+      expiresAt: "2026-03-04T05:06:07.000Z",
+      invitationResent: false,
+    });
+    renderAdminPage(true);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Email address"), "new@example.test");
+    await user.click(
+      screen.getByRole("checkbox", { name: "Product Owner / Stakeholder" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(inviteAdminUser).mock.calls[0]?.[0]).toEqual({
+        email: "new@example.test",
+        roles: ["business_analyst", "product_owner"],
+      }),
+    );
+    expect(await screen.findByLabelText("Invitation link")).toHaveValue(
+      "https://app.example.test/reset-password?token=one-time-token",
+    );
+    expect(
+      screen.getByText(/invitation created\. share this one-time link/i),
+    ).toBeInTheDocument();
+  });
+
+  it("allows administrators to edit project membership without project content access", async () => {
+    const projectAccess = {
+      id: "project-1",
+      name: "Project one",
+      status: "active" as const,
+      ownerUserId: "member-1",
+      memberIds: [],
+    };
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser, memberUser],
+      page: 1,
+      limit: 100,
+      total: 2,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    vi.mocked(listAdminProjectAccess).mockResolvedValue({
+      items: [projectAccess],
+      page: 1,
+      limit: 100,
+      total: 1,
+    });
+    vi.mocked(updateAdminProjectMembers).mockResolvedValue({
+      ...projectAccess,
+      memberIds: ["member-1"],
+    });
+    renderAdminPage(true);
+    const user = userEvent.setup();
+
+    await user.selectOptions(
+      await screen.findByRole("listbox", { name: "Members for Project one" }),
+      "member-1",
+    );
+    await user.click(screen.getByRole("button", { name: "Save membership" }));
+
+    await waitFor(() =>
+      expect(updateAdminProjectMembers).toHaveBeenCalledWith("project-1", [
+        "member-1",
+      ]),
+    );
+    expect(
+      screen.getByText(/administrators do not receive project content access/i),
+    ).toBeInTheDocument();
   });
 });

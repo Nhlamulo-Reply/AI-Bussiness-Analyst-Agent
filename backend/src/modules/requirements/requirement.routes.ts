@@ -69,6 +69,7 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
 
   router.get(
     "/projects/:projectId/requirements",
+    requirePermission("project.business.read"),
     requireProjectAccess(storage),
     async (request, response, next) => {
       try {
@@ -104,7 +105,10 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
     }
   );
 
-  router.get("/requirements/:id/versions", async (request, response, next) => {
+  router.get(
+    "/requirements/:id/versions",
+    requirePermission("project.business.read"),
+    async (request, response, next) => {
     try {
       const user = getAuthenticatedUser(request);
       const requirementId = getRouteParam(request, "id");
@@ -117,7 +121,8 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
     } catch (error) {
       next(error);
     }
-  });
+    },
+  );
 
   return router;
 }

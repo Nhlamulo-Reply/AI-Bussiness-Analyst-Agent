@@ -11,6 +11,19 @@ export const artifactTypes = [
   "implementation_plan",
 ] as const;
 
+export const businessArtifactTypes = [
+  "epic",
+  "story",
+  "acceptance_criteria",
+  "business_rule",
+] as const;
+
+export const deliveryArtifactTypes = [
+  "risk",
+  "dependency",
+  "implementation_plan",
+] as const;
+
 export const artifactStatuses = [
   "draft",
   "submitted",
@@ -210,6 +223,9 @@ export const auditEventSchema = z
     action: z.enum([
       "admin.bootstrap",
       "user.registered",
+      "user.invited",
+      "user.invitation_resent",
+      "user.invitation_accepted",
       "user.roles_changed",
       "user.deactivated",
       "user.reactivated",
@@ -356,7 +372,11 @@ export const updateUserRolesBodySchema = z
         "Roles must be unique.",
       ),
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ roles }) => !roles.includes("admin") || roles.length === 1,
+    "Administrator accounts cannot be combined with project roles.",
+  );
 
 export const createArtifactBodySchema = z
   .object({

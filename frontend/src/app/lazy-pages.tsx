@@ -81,6 +81,11 @@ export const ApprovalWorkspacePage = lazy(() =>
     default: module.ApprovalWorkspacePage,
   })),
 );
+export const DeliveryReviewWorkspacePage = lazy(() =>
+  import("../pages/DeliveryReviewWorkspacePage").then((module) => ({
+    default: module.DeliveryReviewWorkspacePage,
+  })),
+);
 export const AdminPage = lazy(() =>
   import("../pages/AdminPage").then((module) => ({
     default: module.AdminPage,

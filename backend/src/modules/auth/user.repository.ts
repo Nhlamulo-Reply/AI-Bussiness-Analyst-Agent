@@ -6,6 +6,14 @@ export const userRoles = [
 ] as const;
 export type UserRole = typeof userRoles[number];
 
+export function normalizeUserRoles(roles: readonly UserRole[]): UserRole[] {
+  return roles.includes("admin") ? ["admin"] : [...roles];
+}
+
+export function hasExclusiveAdminRole(roles: readonly UserRole[]): boolean {
+  return !roles.includes("admin") || roles.length === 1;
+}
+
 export interface UserRecord {
   id: string;
   email: string;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { auditEventSchema } from "./admin.schemas";
+import {
+  auditEventSchema,
+  inviteUserInputSchema,
+  inviteUserResponseSchema,
+} from "./admin.schemas";
 
 describe("audit event schema", () => {
   it("accepts project, content, and workflow audit events", () => {
@@ -28,5 +32,53 @@ describe("audit event schema", () => {
         }).success,
       ).toBe(true);
     }
+  });
+
+  it("accepts invitation audit events and rejects mixed administrator roles", () => {
+    for (const action of [
+      "user.invited",
+      "user.invitation_resent",
+      "user.invitation_accepted",
+    ] as const) {
+      expect(
+        auditEventSchema.safeParse({
+          id: "event-1",
+          actorUserId: "admin-1",
+          action,
+          resourceType: "user",
+          resourceId: "user-1",
+          createdAt: "2026-03-02T03:04:05.000Z",
+        }).success,
+      ).toBe(true);
+    }
+
+    expect(
+      inviteUserInputSchema.safeParse({
+        email: "new@example.test",
+        roles: ["admin", "business_analyst"],
+      }).success,
+    ).toBe(false);
+    expect(
+      inviteUserInputSchema.safeParse({
+        email: "new@example.test",
+        roles: ["business_analyst", "product_owner"],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("parses copyable one-time invitation links", () => {
+    expect(
+      inviteUserResponseSchema.parse({
+        user: {
+          id: "user-1",
+          email: "new@example.test",
+          roles: ["delivery_lead"],
+          active: false,
+        },
+        invitationUrl: "https://app.example.test/reset-password?token=secret",
+        expiresAt: "2026-03-02T03:04:05.000Z",
+        invitationResent: false,
+      }).user.active,
+    ).toBe(false);
   });
 });

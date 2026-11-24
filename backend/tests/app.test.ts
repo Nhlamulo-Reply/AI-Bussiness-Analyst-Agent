@@ -178,6 +178,23 @@ describe("backend foundation", () => {
     expect(hiddenResponse.status).toBe(404);
   });
 
+  it("does not allow administrators to list projects", async () => {
+    const registration = await registerUser("admin-projects@example.com");
+    const updatedUser = await storage.updateUserRoles(
+      registration.id,
+      ["admin"],
+    );
+    expect(updatedUser?.roles).toEqual(["admin"]);
+
+    const adminToken = await login("admin-projects@example.com");
+    const response = await request(app)
+      .get("/api/v1/projects")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe("FORBIDDEN");
+  });
+
   it("allows owners to revise project briefs and audits sensitive project changes", async () => {
     const owner = await registerUser("project-audit-owner@example.com");
     const member = await registerUser("project-audit-member@example.com");
@@ -435,7 +452,7 @@ describe("backend foundation", () => {
         ? "bootstrap-first@example.com"
         : "bootstrap-second@example.com";
     expect(claimedResponse?.body.data).toMatchObject({
-      roles: ["business_analyst", "admin"],
+      roles: ["admin"],
       requiresLogin: true,
     });
 
@@ -444,6 +461,10 @@ describe("backend foundation", () => {
     const userList = await request(bootstrapApp)
       .get("/api/v1/admin/users")
       .set("Authorization", `Bearer ${adminToken}`);
+    const incompatibleRoleUpdate = await request(bootstrapApp)
+      .patch(`/api/v1/users/${target.id}/roles`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ roles: ["business_analyst", "admin"] });
     const roleUpdate = await request(bootstrapApp)
       .patch(`/api/v1/users/${target.id}/roles`)
       .set("Authorization", `Bearer ${adminToken}`)
@@ -456,9 +477,13 @@ describe("backend foundation", () => {
     expect(userList.body.data.items).toHaveLength(3);
     expect(
       userList.body.data.items.every(
-        (user: object) => !("passwordHash" in user),
+        (user: object) =>
+          !("passwordHash" in user) &&
+          !("sessionVersion" in user) &&
+          !("googleSubject" in user),
       ),
     ).toBe(true);
+    expect(incompatibleRoleUpdate.status).toBe(400);
     expect(roleUpdate.status).toBe(200);
     expect(auditResponse.status).toBe(200);
     expect(
@@ -473,7 +498,7 @@ describe("backend foundation", () => {
   it("deactivates accounts, revokes JWTs immediately, and allows reactivation", async () => {
     const admin = await registerUser("lifecycle-admin@example.com");
     const member = await registerUser("lifecycle-member@example.com");
-    await storage.updateUserRoles(admin.id, ["business_analyst", "admin"]);
+    await storage.updateUserRoles(admin.id, ["admin"]);
     const adminToken = await login("lifecycle-admin@example.com");
 
     const selfDeactivation = await request(app)
@@ -519,9 +544,298 @@ describe("backend foundation", () => {
     );
   });
 
+  it("keeps administrator access project-metadata-only and audits membership changes", async () => {
+    const adminCandidate = await registerUser("metadata-admin@example.com");
+    const owner = await registerUser("metadata-owner@example.com");
+    const member = await registerUser("metadata-member@example.com");
+    const project = await createProject(owner.token);
+    const bootstrapToken = "metadata-admin-bootstrap-token-with-32-chars";
+    const bootstrapApp = createApp({
+      config: { ...config, adminBootstrapToken: bootstrapToken },
+      storage,
+      users: storage,
+    });
+
+    const bootstrap = await request(bootstrapApp)
+      .post("/api/v1/users/bootstrap-admin")
+      .set("Authorization", `Bearer ${adminCandidate.token}`)
+      .send({ token: bootstrapToken });
+    const adminToken = await login("metadata-admin@example.com");
+    const projectList = await request(bootstrapApp)
+      .get("/api/v1/projects")
+      .set("Authorization", `Bearer ${adminToken}`);
+    const projectDetail = await request(bootstrapApp)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    const accessList = await request(bootstrapApp)
+      .get("/api/v1/admin/project-access?page=1&limit=10")
+      .set("Authorization", `Bearer ${adminToken}`);
+    const memberUpdate = await request(bootstrapApp)
+      .put(`/api/v1/admin/project-access/${project.id}/members`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ memberIds: [member.id] });
+    const adminMembershipAttempt = await request(bootstrapApp)
+      .put(`/api/v1/admin/project-access/${project.id}/members`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ memberIds: [member.id, adminCandidate.id] });
+    const memberProject = await request(bootstrapApp)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${member.token}`);
+    const auditEvents = await storage.listAuditEvents(1, 100);
+    const membershipEvent = auditEvents.items.find(
+      (event) =>
+        event.action === "project.members_changed" &&
+        event.actorUserId === adminCandidate.id,
+    );
+
+    expect(bootstrap.status).toBe(200);
+    expect(bootstrap.body.data.roles).toEqual(["admin"]);
+    expect(projectList.status).toBe(403);
+    expect(projectDetail.status).toBe(403);
+    expect(accessList.status).toBe(200);
+    expect(accessList.body.data.items).toContainEqual({
+      id: project.id,
+      name: "Test project",
+      status: "active",
+      ownerUserId: owner.id,
+      memberIds: [],
+    });
+    expect(JSON.stringify(accessList.body.data)).not.toMatch(
+      /description|businessObjective|documents|requirements|artifacts|approvals/i,
+    );
+    expect(memberUpdate.status).toBe(200);
+    expect(memberUpdate.body.data).toEqual({
+      id: project.id,
+      name: "Test project",
+      status: "active",
+      ownerUserId: owner.id,
+      memberIds: [member.id],
+    });
+    expect(adminMembershipAttempt.status).toBe(400);
+    expect(memberProject.status).toBe(200);
+    expect(membershipEvent).toMatchObject({
+      actorUserId: adminCandidate.id,
+      before: { memberIds: [] },
+      after: { memberIds: [member.id] },
+    });
+  });
+
+  it("creates one-time admin invitations and activates the account only after password setup", async () => {
+    const admin = await registerUser("invite-admin@example.com");
+    await storage.updateUserRoles(admin.id, ["admin"]);
+    const adminToken = await login("invite-admin@example.com");
+    const invitation = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "invited-owner@example.com",
+        roles: ["product_owner"],
+      });
+    const inviteUrl = new URL(invitation.body.data.invitationUrl as string);
+    const inviteToken = inviteUrl.searchParams.get("token");
+    const resentInvitation = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "invited-owner@example.com",
+        roles: ["product_owner"],
+      });
+    const resentInviteUrl = new URL(
+      resentInvitation.body.data.invitationUrl as string,
+    );
+    const resentInviteToken = resentInviteUrl.searchParams.get("token");
+    const invitedUser = await storage.findByEmail("invited-owner@example.com");
+    const revokedInvite = await request(app)
+      .post("/api/v1/auth/password-reset/confirm")
+      .send({
+        token: inviteToken,
+        password: "invited-owner-password-12",
+        confirmPassword: "invited-owner-password-12",
+      });
+    const accountSetup = await request(app)
+      .post("/api/v1/auth/password-reset/confirm")
+      .send({
+        token: resentInviteToken,
+        password: "invited-owner-password-12",
+        confirmPassword: "invited-owner-password-12",
+      });
+    const reusedInvite = await request(app)
+      .post("/api/v1/auth/password-reset/confirm")
+      .send({
+        token: inviteToken,
+        password: "invited-owner-password-12",
+        confirmPassword: "invited-owner-password-12",
+      });
+    const loginResponse = await request(app)
+      .post("/api/v1/auth/login")
+      .send({
+        email: "invited-owner@example.com",
+        password: "invited-owner-password-12",
+      });
+    const auditEvents = await storage.listAuditEvents(1, 100);
+
+    expect(invitation.status).toBe(201);
+    expect(invitation.body.data.user).toMatchObject({
+      email: "invited-owner@example.com",
+      roles: ["product_owner"],
+      active: false,
+    });
+    expect(invitedUser).toMatchObject({ active: false });
+    expect(inviteUrl.pathname).toBe("/reset-password");
+    expect(invitation.body.data.expiresAt).toEqual(expect.any(String));
+    expect(invitation.body.data.invitationResent).toBe(false);
+    expect(resentInvitation.status).toBe(200);
+    expect(resentInvitation.body.data.invitationResent).toBe(true);
+    expect(resentInviteToken).not.toBe(inviteToken);
+    expect(revokedInvite.status).toBe(400);
+    expect(accountSetup.status).toBe(200);
+    expect(reusedInvite.status).toBe(400);
+    expect(loginResponse.status).toBe(200);
+    expect(loginResponse.body.data.user.roles).toEqual(["product_owner"]);
+    expect(auditEvents.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "user.invited",
+          actorUserId: admin.id,
+        }),
+        expect.objectContaining({
+          action: "user.invitation_resent",
+          actorUserId: admin.id,
+        }),
+        expect.objectContaining({
+          action: "user.invitation_accepted",
+          actorUserId: invitedUser?.id,
+        }),
+      ]),
+    );
+
+    const mixedRoleInvitation = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "invalid-role-invite@example.com",
+        roles: ["admin", "business_analyst"],
+      });
+    expect(mixedRoleInvitation.status).toBe(400);
+  });
+
+  it("enforces role-scoped project resources and keeps delivery feedback separate from approval", async () => {
+    const owner = await registerUser("resource-owner@example.com");
+    const productOwner = await registerUser("resource-product-owner@example.com");
+    const deliveryLead = await registerUser("resource-delivery-lead@example.com");
+    await storage.updateUserRoles(productOwner.id, ["product_owner"]);
+    await storage.updateUserRoles(deliveryLead.id, ["delivery_lead"]);
+    const productOwnerToken = await login("resource-product-owner@example.com");
+    const deliveryLeadToken = await login("resource-delivery-lead@example.com");
+    const project = await createProject(owner.token);
+    const membership = await request(app)
+      .patch(`/api/v1/projects/${project.id}/members`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ memberIds: [productOwner.id, deliveryLead.id] });
+    const requirement = await request(app)
+      .post(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Customer outcome", type: "business" });
+    const businessArtifact = await request(app)
+      .post(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ type: "story", title: "Customer story" });
+    const deliveryArtifact = await request(app)
+      .post(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ type: "risk", title: "Delivery risk" });
+    const businessArtifactsForOwner = await request(app)
+      .get(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${productOwnerToken}`);
+    const deliveryArtifactsForLead = await request(app)
+      .get(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const deliveryRequirements = await request(app)
+      .get(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const deliveryDocuments = await request(app)
+      .get(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const deliveryApproval = await request(app)
+      .post("/api/v1/approvals")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({
+        projectId: project.id,
+        artifactType: "risk",
+        artifactId: deliveryArtifact.body.data.id,
+      });
+    const deliveryQueue = await request(app)
+      .get(`/api/v1/projects/${project.id}/delivery-reviews`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const analystQueue = await request(app)
+      .get(`/api/v1/projects/${project.id}/delivery-reviews`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const deliveryApprovalDetail = await request(app)
+      .get(`/api/v1/approvals/${deliveryApproval.body.data.id}`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const deliveryDecision = await request(app)
+      .patch(`/api/v1/approvals/${deliveryApproval.body.data.id}`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`)
+      .send({ decision: "approved" });
+    const feedback = await request(app)
+      .post(`/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`)
+      .send({ comments: "Schedule a feasibility review." });
+    const approvalAfterFeedback = await request(app)
+      .get(`/api/v1/approvals/${deliveryApproval.body.data.id}`)
+      .set("Authorization", `Bearer ${productOwnerToken}`);
+    const ownerArtifactVersions = await request(app)
+      .get(`/api/v1/artifacts/${deliveryArtifact.body.data.id}/versions?type=risk`)
+      .set("Authorization", `Bearer ${productOwnerToken}`);
+    const leadArtifactVersions = await request(app)
+      .get(`/api/v1/artifacts/${businessArtifact.body.data.id}/versions?type=story`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+
+    expect(membership.status).toBe(200);
+    expect(requirement.status).toBe(201);
+    expect(businessArtifact.status).toBe(201);
+    expect(deliveryArtifact.status).toBe(201);
+    expect(businessArtifactsForOwner.body.data.items).toEqual([
+      expect.objectContaining({ type: "story" }),
+    ]);
+    expect(deliveryArtifactsForLead.body.data.items).toEqual([
+      expect.objectContaining({ type: "risk" }),
+    ]);
+    expect(deliveryRequirements.status).toBe(403);
+    expect(deliveryDocuments.status).toBe(403);
+    expect(deliveryApproval.status).toBe(201);
+    expect(deliveryQueue.status).toBe(200);
+    expect(deliveryQueue.body.data.items).toEqual([
+      expect.objectContaining({
+        approval: expect.objectContaining({
+          id: deliveryApproval.body.data.id,
+        }),
+        resource: expect.objectContaining({
+          id: deliveryArtifact.body.data.id,
+          type: "risk",
+        }),
+      }),
+    ]);
+    expect(analystQueue.status).toBe(403);
+    expect(deliveryApprovalDetail.status).toBe(403);
+    expect(deliveryDecision.status).toBe(403);
+    expect(feedback.status).toBe(200);
+    expect(approvalAfterFeedback.body.data.approval).toMatchObject({
+      decision: "pending",
+      deliveryFeedback: [
+        expect.objectContaining({
+          reviewerUserId: deliveryLead.id,
+          comments: "Schedule a feasibility review.",
+        }),
+      ],
+    });
+    expect(ownerArtifactVersions.status).toBe(403);
+    expect(leadArtifactVersions.status).toBe(403);
+  });
+
   it("manages typed templates and exports the full audit log as JSON and CSV", async () => {
     const admin = await registerUser("template-admin@example.com");
-    await storage.updateUserRoles(admin.id, ["business_analyst", "admin"]);
+    await storage.updateUserRoles(admin.id, ["admin"]);
     const token = await login("template-admin@example.com");
     const created = await request(app)
       .post("/api/v1/admin/templates")
@@ -535,9 +849,10 @@ describe("backend foundation", () => {
 
     expect(created.status).toBe(201);
     expect(created.body.data.status).toBe("active");
+    const projectOwner = await registerUser("template-project-owner@example.com");
     const project = await request(app)
       .post("/api/v1/projects")
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${projectOwner.token}`)
       .send({
         name: "Templated project",
         intakeTemplateId: created.body.data.id,
@@ -551,7 +866,7 @@ describe("backend foundation", () => {
       .send({ status: "inactive" });
     const inactiveIntakeProject = await request(app)
       .post("/api/v1/projects")
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${projectOwner.token}`)
       .send({
         name: "Should not use inactive template",
         intakeTemplateId: created.body.data.id,
@@ -586,7 +901,7 @@ describe("backend foundation", () => {
 
   it("supports role assignment, project membership, requirement versions, and approval transitions", async () => {
     const firstAdmin = await registerUser("initial-admin@example.com");
-    await storage.updateUserRoles(firstAdmin.id, ["business_analyst", "admin"]);
+    await storage.updateUserRoles(firstAdmin.id, ["admin"]);
     const adminLogin = await login("initial-admin@example.com");
     const owner = await registerUser("approver-owner@example.com");
     const reviewer = await registerUser("reviewer@example.com");
@@ -929,6 +1244,17 @@ describe("backend foundation", () => {
     expect(
       openApiDocument.paths["/projects/{id}/export"].get.responses,
     ).toHaveProperty(String(projectExport.status));
+    expect(openApiDocument.paths["/admin/users/invitations"].post).toBeDefined();
+    expect(openApiDocument.paths["/admin/project-access"].get).toBeDefined();
+    expect(
+      openApiDocument.paths["/admin/project-access/{id}/members"].put,
+    ).toBeDefined();
+    expect(
+      openApiDocument.paths["/projects/{projectId}/delivery-reviews"].get,
+    ).toBeDefined();
+    expect(
+      openApiDocument.paths["/approvals/{id}/delivery-feedback"].post,
+    ).toBeDefined();
   });
 });
 

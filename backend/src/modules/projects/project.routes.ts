@@ -13,11 +13,14 @@ import {
 import { authenticate } from "../../common/middleware/authentication";
 import { requirePermission } from "../../common/middleware/authorization";
 import { requireProjectAccess } from "../../common/middleware/project-access";
+import { hasPermission } from "../../common/authorization/permissions";
 import { parsePagination } from "../../common/utils/pagination";
 import { validateBody } from "../../common/middleware/validation";
 import {
+  businessArtifactTypes,
   createArtifactBodySchema,
   createProjectBodySchema,
+  deliveryArtifactTypes,
   patchProjectBodySchema,
   projectMembersBodySchema,
 } from "../domain/domain.schemas";
@@ -101,18 +104,22 @@ export function createProjectRouter(
     },
   );
 
-  router.get("/", async (request, response, next) => {
-    try {
-      const user = getAuthenticatedUser(request);
-      const { page, limit } = parsePagination(request.query);
-      const result = await storage.listProjectsForUser(user.id, page, limit);
-      response
-        .status(200)
-        .json({ success: true, data: result, requestId: request.id });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/",
+    requirePermission("project.read"),
+    async (request, response, next) => {
+      try {
+        const user = getAuthenticatedUser(request);
+        const { page, limit } = parsePagination(request.query);
+        const result = await storage.listProjectsForUser(user.id, page, limit);
+        response
+          .status(200)
+          .json({ success: true, data: result, requestId: request.id });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   router.get(
     "/:id",
@@ -189,15 +196,21 @@ export function createProjectRouter(
         }
         for (const memberId of request.body.memberIds as string[]) {
           const member = await storage.findById(memberId);
-          if (!member || !member.active) {
+          if (
+            !member ||
+            !member.active ||
+            member.roles.length === 0 ||
+            member.roles.includes("admin")
+          ) {
             throw new AppError(
               400,
               "VALIDATION_ERROR",
-              "A member must be an active registered user.",
+              "A member must be an active non-administrator user.",
               [
                 {
                   field: "memberIds",
-                  reason: "Every member ID must belong to an active user",
+                  reason:
+                    "Every member ID must belong to an active user with a project role",
                 },
               ],
             );
@@ -206,6 +219,7 @@ export function createProjectRouter(
         const updated = await storage.replaceProjectMembers(
           projectId,
           request.body.memberIds as string[],
+          user.id,
         );
         if (!updated) {
           throw new AppError(404, "NOT_FOUND", "Project not found.");
@@ -267,14 +281,25 @@ export function createProjectRouter(
 
   router.get(
     "/:id/artifacts",
+    requirePermission("project.business.read", "project.delivery.read"),
     requireProjectAccess(storage),
     async (request, response, next) => {
       try {
         const { page, limit } = parsePagination(request.query);
+        const user = getAuthenticatedUser(request);
+        const allowedTypes = [
+          ...(hasPermission(user.roles, "project.business.read")
+            ? businessArtifactTypes
+            : []),
+          ...(hasPermission(user.roles, "project.delivery.read")
+            ? deliveryArtifactTypes
+            : []),
+        ];
         const artifacts = await storage.listArtifacts(
           getRouteParam(request, "id"),
           page,
           limit,
+          allowedTypes,
         );
         response
           .status(200)
@@ -358,6 +383,7 @@ export function createProjectRouter(
 
   router.get(
     "/:id/documents",
+    requirePermission("project.business.read"),
     requireProjectAccess(storage),
     async (request, response, next) => {
       try {
@@ -470,6 +496,7 @@ export function createProjectRouter(
 
   router.get(
     "/:id/export",
+    requirePermission("project.export"),
     requireProjectAccess(storage),
     async (request, response, next) => {
       try {

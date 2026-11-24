@@ -34,6 +34,9 @@ export const auditEventSchema = z
       "user.roles_changed",
       "user.deactivated",
       "user.reactivated",
+      "user.invited",
+      "user.invitation_resent",
+      "user.invitation_accepted",
       "audit.exported",
       "project.created",
       "project.exported",
@@ -82,7 +85,11 @@ export const auditEventPageSchema = pageSchema(auditEventSchema);
 export const updateUserRolesSchema = z
   .array(z.enum(userRoles))
   .min(1)
-  .max(userRoles.length);
+  .max(userRoles.length)
+  .refine(
+    (roles) => !roles.includes("admin") || roles.length === 1,
+    "Administrator accounts cannot be combined with project roles.",
+  );
 export const bootstrapAdminResponseSchema = z
   .object({
     id: z.string().min(1),
@@ -90,6 +97,51 @@ export const bootstrapAdminResponseSchema = z
     roles: z.array(z.enum(userRoles)),
     requiresLogin: z.literal(true),
   })
+  .strict();
+
+export const inviteUserInputSchema = z
+  .object({
+    email: z.string().trim().pipe(z.email()),
+    roles: z
+      .array(z.enum(userRoles))
+      .min(1)
+      .max(userRoles.length)
+      .refine((roles) => new Set(roles).size === roles.length)
+      .refine(
+        (roles) => !roles.includes("admin") || roles.length === 1,
+        "Administrator accounts cannot be combined with project roles.",
+      ),
+  })
+  .strict();
+
+export const inviteUserResponseSchema = z
+  .object({
+    user: z
+      .object({
+        id: z.string().min(1),
+        email: z.email(),
+        roles: z.array(z.enum(userRoles)),
+        active: z.boolean(),
+      })
+      .strict(),
+    invitationUrl: z.url(),
+    expiresAt: z.iso.datetime(),
+    invitationResent: z.boolean(),
+  })
+  .strict();
+
+export const projectAccessSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    status: z.enum(["active", "archived"]),
+    ownerUserId: z.string().min(1),
+    memberIds: z.array(z.string().min(1)),
+  })
+  .strict();
+export const projectAccessPageSchema = pageSchema(projectAccessSchema);
+export const updateProjectMembersSchema = z
+  .object({ memberIds: z.array(z.string().min(1)) })
   .strict();
 
 export const templateTypes = [
@@ -123,3 +175,6 @@ export type AuditEvent = z.infer<typeof auditEventSchema>;
 export type AdminTemplate = z.infer<typeof adminTemplateSchema>;
 export type TemplateType = z.infer<typeof templateTypeSchema>;
 export type UserRole = (typeof userRoles)[number];
+export type InviteUserInput = z.infer<typeof inviteUserInputSchema>;
+export type InviteUserResponse = z.infer<typeof inviteUserResponseSchema>;
+export type ProjectAccess = z.infer<typeof projectAccessSchema>;

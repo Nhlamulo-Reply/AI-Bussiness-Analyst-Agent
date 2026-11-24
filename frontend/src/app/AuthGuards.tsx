@@ -3,7 +3,11 @@ import type { ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../features/auth/useAuth";
 import type { UserRole } from "../features/auth/auth.schemas";
-import { hasPermission, type Permission } from "../features/auth/permissions";
+import {
+  hasAnyPermission,
+  hasPermission,
+  type Permission,
+} from "../features/auth/permissions";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
@@ -89,12 +93,17 @@ export function RequirePermission({
   permission,
   children,
 }: {
-  permission: Permission;
+  permission: Permission | readonly Permission[];
   children: ReactNode;
 }) {
   const { session } = useAuth();
 
-  if (!hasPermission(session?.user.roles, permission)) {
+  const allowed =
+    typeof permission === "string"
+      ? hasPermission(session?.user.roles, permission)
+      : hasAnyPermission(session?.user.roles, permission);
+
+  if (!allowed) {
     return (
       <section className="access-denied">
         <Card className="access-denied__card">

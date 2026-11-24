@@ -298,7 +298,8 @@ export const openApiDocument = {
     },
     "/projects/{id}/artifacts": {
       get: {
-        summary: "List project artifacts",
+        summary:
+          "List artifacts permitted for the user's project role: business types for Business Analysts/Product Owners and delivery types for Business Analysts/Delivery Leads",
         security: bearerSecurity,
         parameters: [
           {
@@ -338,7 +339,7 @@ export const openApiDocument = {
     },
     "/projects/{id}/export": {
       get: {
-        summary: "Export project data as JSON, Markdown, or CSV",
+        summary: "Export project data as JSON, Markdown, or CSV (Business Analyst only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -358,7 +359,7 @@ export const openApiDocument = {
     },
     "/projects/{projectId}/requirements": {
       get: {
-        summary: "List project requirements",
+        summary: "List project requirements (Business Analyst or Product Owner)",
         security: bearerSecurity,
         parameters: [
           {
@@ -401,7 +402,7 @@ export const openApiDocument = {
     },
     "/projects/{projectId}/approvals": {
       get: {
-        summary: "List approvals for a project (reviewer/admin)",
+        summary: "List approvals for a project (Product Owner only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -433,7 +434,38 @@ export const openApiDocument = {
           ...ok,
           "200": { description: "Paginated approval records for the project" },
           "400": { description: "Invalid filter or pagination" },
-          "403": { description: "Reviewer or admin role required" },
+          "403": { description: "Product Owner role required" },
+          "404": { description: "Project not found or inaccessible" },
+        },
+      },
+    },
+    "/projects/{projectId}/delivery-reviews": {
+      get: {
+        summary:
+          "List pending risk, dependency, and implementation-plan reviews (Delivery Lead only)",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "projectId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+        ],
+        responses: {
+          ...ok,
+          "200": { description: "Paginated delivery review records and artifacts" },
+          "403": { description: "Delivery Lead role required" },
           "404": { description: "Project not found or inaccessible" },
         },
       },
@@ -572,7 +604,7 @@ export const openApiDocument = {
     "/approvals/{id}": {
       get: {
         summary:
-          "Get an approval and its current requirement or artifact (reviewer/admin)",
+          "Get an approval and its current requirement or artifact (Product Owner only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -588,13 +620,13 @@ export const openApiDocument = {
             description:
               "Approval record and its current requirement or artifact resource",
           },
-          "403": { description: "Reviewer or admin role required" },
+          "403": { description: "Product Owner role required" },
           "404": { description: "Approval not found or inaccessible" },
         },
       },
       patch: {
         summary:
-          "Approve, reject, or request changes (reviewer/admin; no self-review)",
+          "Approve, reject, or request changes (Product Owner only; no self-review)",
         security: bearerSecurity,
         parameters: [
           {
@@ -619,15 +651,42 @@ export const openApiDocument = {
         responses: {
           ...ok,
           "403": {
-            description: "Reviewer role required or self-review attempted",
+            description: "Product Owner role required or self-review attempted",
           },
           "409": { description: "Approval already decided" },
         },
       },
     },
+    "/approvals/{id}/delivery-feedback": {
+      post: {
+        summary:
+          "Add Delivery Lead feedback to a pending delivery artifact review without deciding it",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: jsonBody({
+          type: "object",
+          required: ["comments"],
+          properties: { comments: { type: "string", minLength: 1, maxLength: 4000 } },
+          additionalProperties: false,
+        }),
+        responses: {
+          ...ok,
+          "403": { description: "Delivery Lead role or delivery artifact required" },
+          "404": { description: "Approval not found or inaccessible" },
+          "409": { description: "Delivery review is no longer pending" },
+        },
+      },
+    },
     "/users/{id}/roles": {
       patch: {
-        summary: "Set user roles (admin only)",
+        summary: "Set canonical user roles (admin only; admin cannot be combined with project roles)",
         security: bearerSecurity,
         parameters: [
           {
@@ -656,7 +715,11 @@ export const openApiDocument = {
           },
           additionalProperties: false,
         }),
-        responses: { ...ok, "403": { description: "Admin role required" } },
+        responses: {
+          ...ok,
+          "400": { description: "Invalid or incompatible role assignment" },
+          "403": { description: "Admin role required" },
+        },
       },
     },
     "/users/bootstrap-admin": {
@@ -682,7 +745,8 @@ export const openApiDocument = {
     },
     "/admin/users": {
       get: {
-        summary: "List users without password hashes (admin only)",
+        summary:
+          "List safe user profiles without credentials or internal session fields (admin only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -697,6 +761,40 @@ export const openApiDocument = {
           },
         ],
         responses: { ...ok, "403": { description: "Admin role required" } },
+      },
+    },
+    "/admin/users/invitations": {
+      post: {
+        summary:
+          "Create an inactive user and return a one-time password-setup invitation link (admin only)",
+        security: bearerSecurity,
+        requestBody: jsonBody({
+          type: "object",
+          required: ["email", "roles"],
+          properties: {
+            email: { type: "string", format: "email" },
+            roles: {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "string",
+                enum: [
+                  "business_analyst",
+                  "product_owner",
+                  "delivery_lead",
+                  "admin",
+                ],
+              },
+            },
+          },
+          additionalProperties: false,
+        }),
+        responses: {
+          ...created,
+          "200": { description: "A pending invitation was refreshed" },
+          "403": { description: "Admin role required" },
+          "409": { description: "Email is already registered" },
+        },
       },
     },
     "/admin/users/{id}/active": {
@@ -723,6 +821,60 @@ export const openApiDocument = {
           "403": { description: "Admin role required" },
           "404": { description: "User not found" },
           "409": { description: "The last active admin is protected" },
+        },
+      },
+    },
+    "/admin/project-access": {
+      get: {
+        summary:
+          "List minimal project membership metadata without exposing project contents (admin only)",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+        ],
+        responses: { ...ok, "403": { description: "Admin role required" } },
+      },
+    },
+    "/admin/project-access/{id}/members": {
+      put: {
+        summary:
+          "Replace project member IDs without granting the administrator project-content access",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: jsonBody({
+          type: "object",
+          required: ["memberIds"],
+          properties: {
+            memberIds: {
+              type: "array",
+              maxItems: 100,
+              uniqueItems: true,
+              items: { type: "string" },
+            },
+          },
+          additionalProperties: false,
+        }),
+        responses: {
+          ...ok,
+          "400": { description: "A member is inactive or is an administrator" },
+          "403": { description: "Admin role required" },
+          "404": { description: "Project not found" },
         },
       },
     },

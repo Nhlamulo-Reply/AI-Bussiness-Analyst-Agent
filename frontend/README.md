@@ -4,27 +4,41 @@ The frontend is a standalone React, TypeScript, and Vite application. It include
 the responsive workspace shell, in-memory authentication, a live dashboard,
 paginated project browsing, project creation, project overview, a live project
 document library, a backend-backed requirements register, and a deliverables
-workspace. The document library accepts one PDF, DOCX, or plain-text TXT file
+workspace. The workspace supports a persistent light/dark theme toggle in the
+header and follows the operating-system theme until the user chooses one. The
+document library accepts one PDF, DOCX, or plain-text TXT file
 per upload (up to 5 MiB), shows upload progress and returned metadata, and does
 not provide preview, download, rename, or permanent delete actions. Project
-owners can reversibly archive and restore documents; archived bytes remain
-stored but are hidden from standard lists, workflows, and exports. The project AI
-workbench offers seven backend-backed workflows with explicit context
-selection, privacy confirmation for document-based runs, execution polling,
-and validated draft results.
+owners who are Business Analysts can reversibly archive and restore documents;
+archived bytes remain stored but are hidden from standard lists, workflows,
+and exports. The project AI workbench offers seven backend-backed workflows
+with explicit context selection, privacy confirmation for document-based runs,
+execution polling, and validated draft results.
 
 The requirements register supports server pagination, current-page search and
 filters, source-document links on creation, requirement details and traceability,
 editable fields supported by the API, and a validated version-history timeline.
 Editing creates a new version and resets the requirement to draft; linked
 document IDs cannot be changed through the current edit endpoint. The
-deliverables and project export workspaces are live. Reviewers and admins can
-load a project-scoped approval queue, inspect the submitted requirement or
-artifact, and record decisions. The backend enforces role, project access, and self-review restrictions. The
+deliverables and project export workspaces are live. Product Owners can load a
+project-scoped approval queue, inspect the submitted requirement or artifact,
+and record business decisions. The backend enforces the Product Owner role,
+project access, and self-review restrictions. Delivery Lead feedback is a
+separate capability and does not grant approval-decision access. Its dedicated
+workspace records feedback without changing the pending decision. The
 Administration workspace supports first-admin bootstrap, user listing, role
-assignment, reversible user deactivation/reactivation, template management for
-all five categories, and audit history with full JSON/CSV export. Deactivation
-revokes existing JWT sessions; the last active administrator is protected.
+assignment, one-time copyable invitations, metadata-only project membership,
+reversible user deactivation/reactivation, template management for all five
+categories, and audit history with full JSON/CSV export. Administrators do not
+receive project-content access. Deactivation revokes existing JWT sessions;
+the last active administrator is protected.
+
+The four human roles have separate dashboards and permission-gated navigation:
+Business Analysts prepare requirements, artifacts, and AI drafts; Product
+Owners review business content and make approval decisions; Delivery Leads
+review delivery artifacts and provide feedback only; Administrators manage
+users, project membership metadata, templates, and audit history. AI agents
+are workflow tools rather than human roles and cannot approve requirements.
 
 ## Implementation phase status
 
@@ -42,7 +56,7 @@ implementation snapshot, not evidence that the approval gates in
 | 6. Requirements management        | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | 7. AI workflow workbench          | Implemented for all seven backend workflows.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | 8. Artifacts and version history  | Implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| 9. Approval UX                    | Implemented: draft requirements and artifacts can be submitted for review; reviewers/admins can list and inspect project approvals and approve, reject, or request changes. The backend enforces reviewer role, project access, pending-only transitions, and no self-review.                                                                                                                                                                                                                        |
+| 9. Approval UX                    | Implemented: draft requirements and artifacts can be submitted for review; Product Owners can list and inspect project approvals and approve, reject, or request changes. The backend enforces the `product_owner` role, project access, pending-only transitions, and no self-review.                                                                                                                                                                                                               |
 | 10. Exports and release readiness | Partially implemented: JSON, Markdown, and CSV project downloads plus JSON/CSV full audit exports are live; routes are code-split; query caches are cleared when the signed-in token changes; owner-only document archiving/restoration and admin user/template lifecycle controls are supported. Playwright covers key flows with mocked API responses, while axe checks key routes at desktop/mobile widths. Full app-wide accessibility/security review and production hosting validation remain. |
 
 The frontend uses lazy route loading with a shared loading state. In-memory
@@ -108,15 +122,24 @@ CSV-safety rules.
 
 ## Approval review
 
-The reviewer workspace loads a paginated queue from
+The Product Owner workspace loads a paginated queue from
 `GET /api/v1/projects/{projectId}/approvals` and reads the selected approval
 with its current requirement or artifact through `GET /api/v1/approvals/{id}`.
 The queue supports pending, approved, rejected, and changes-requested filters.
 Review decisions use `PATCH /api/v1/approvals/{id}`. All three endpoints
-require a reviewer or admin role and access to the project; the backend also
-prevents submitters from deciding their own requests and rejects repeated
+require the `product_owner` permission and access to the project; the backend
+also prevents submitters from deciding their own requests and rejects repeated
 decisions. A decision invalidates the approval, requirement, and artifact
-queries so the queue and resource status refresh.
+queries so the queue and resource status refresh. Only Product Owners can make
+the decision; AI-generated content remains a draft until a human review.
+
+## Delivery review
+
+Delivery Leads receive a project-scoped queue for pending risks, dependencies,
+and implementation plans. The workspace records delivery feedback separately
+from the approval decision; Product Owners remain responsible for approving,
+rejecting, or requesting changes. Project-level queue counts are shown on the
+Delivery Lead dashboard.
 
 ## Setup
 
@@ -147,10 +170,14 @@ about backend hosting or storage.
 
 Authentication uses short-lived bearer tokens held in memory only. Reloading or
 closing the page clears the session and requires signing in again. New accounts
-receive the standard user role; elevated roles must be assigned separately.
-Administrators can deactivate/reactivate accounts and manage templates without
-deleting records. Audit events are retained indefinitely (no automatic purge),
-and administrators can download the complete history in JSON or CSV.
+receive the `business_analyst` role; the other roles are assigned separately.
+Project pages require the appropriate role permission and project ownership or
+membership; an administrator-only account is directed to Administration.
+Administrators can manage user roles, create or resend copyable one-time
+invitations, edit project membership metadata without viewing project content,
+and manage templates without deleting records. Audit events are retained
+indefinitely (no automatic purge), and administrators can download the complete
+history in JSON or CSV.
 Document uploads are stored by the backend but are not sent to an AI provider
 by uploading. Any later AI workflow that shares selected document content must
 show a separate confirmation. The frontend does not persist document bytes in

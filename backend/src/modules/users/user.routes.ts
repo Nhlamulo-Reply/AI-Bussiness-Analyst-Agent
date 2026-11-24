@@ -6,10 +6,8 @@ import {
   type Storage,
 } from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
-import {
-  authenticate,
-  requireRoles,
-} from "../../common/middleware/authentication";
+import { authenticate } from "../../common/middleware/authentication";
+import { requirePermission } from "../../common/middleware/authorization";
 import {
   getAuthenticatedUser,
   getRouteParam,
@@ -84,7 +82,7 @@ export function createUserRouter(
 
   router.patch(
     "/:id/roles",
-    requireRoles("admin"),
+    requirePermission("admin.users"),
     validateBody(updateUserRolesBodySchema),
     async (request, response, next) => {
       try {

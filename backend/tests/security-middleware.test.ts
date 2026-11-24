@@ -73,6 +73,30 @@ describe("authorization middleware", () => {
     expect(userCanAccessProject).toHaveBeenCalledTimes(1);
   });
 
+  it("denies project access to administrators without project.read", async () => {
+    const app = express();
+    const userCanAccessProject = jest.fn(async () => true);
+    app.use((req, _response, next) => {
+      req.id = "test-request";
+      next();
+    });
+    app.get(
+      "/projects/:id",
+      authenticate(secret, findActiveUser(["admin"])),
+      requireProjectAccess({ userCanAccessProject }),
+      (_request, response) => response.sendStatus(204)
+    );
+    app.use(errorHandler);
+
+    const response = await request(app)
+      .get(`/projects/${randomUUID()}`)
+      .set("Authorization", `Bearer ${createToken(["admin"])}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe("FORBIDDEN");
+    expect(userCanAccessProject).not.toHaveBeenCalled();
+  });
+
   it("conceals projects that the user cannot access", async () => {
     const app = express();
     app.use((req, _response, next) => {

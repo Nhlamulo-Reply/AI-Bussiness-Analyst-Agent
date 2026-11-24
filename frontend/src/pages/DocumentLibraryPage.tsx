@@ -25,6 +25,7 @@ import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { Dialog } from "../components/ui/Dialog";
 import { useAuth } from "../features/auth/useAuth";
+import { hasPermission } from "../features/auth/permissions";
 import {
   useArchiveProjectDocument,
   useProjectDocuments,
@@ -82,9 +83,14 @@ export function DocumentLibraryPage() {
   );
   const [uploadProgress, setUploadProgress] = useState(0);
   const projectQuery = useProject(projectId);
-  const canManageDocuments =
+  const isProjectOwner =
     Boolean(session?.user.id) &&
     projectQuery.data?.ownerUserId === session?.user.id;
+  const canUploadDocuments = hasPermission(
+    session?.user.roles,
+    "analysis.prepare",
+  );
+  const canManageDocuments = isProjectOwner;
   const documentsQuery = useProjectDocuments(
     projectId,
     canManageDocuments && showArchived,
@@ -228,212 +234,237 @@ export function DocumentLibraryPage() {
       ) : null}
 
       <div className="document-library__grid">
-        <Card as="section" className="document-upload-card">
-          <div className="document-section-heading">
-            <span className="document-section-heading__icon">
-              <FileUp aria-hidden="true" size={18} />
-            </span>
-            <div>
-              <h2>Add a document</h2>
-              <p>One file per upload · up to 5 MiB</p>
-            </div>
-          </div>
-
-          <form className="document-upload-form" onSubmit={handleSubmit}>
-            <div
-              aria-label="Drop a source document"
-              className={`document-dropzone${isDragging ? " document-dropzone--active" : ""}`}
-              onDragEnter={(event) => {
-                event.preventDefault();
-                if (!uploadMutation.isPending) setIsDragging(true);
-              }}
-              onDragLeave={(event) => {
-                if (
-                  event.relatedTarget instanceof Node &&
-                  event.currentTarget.contains(event.relatedTarget)
-                ) {
-                  return;
-                }
-                setIsDragging(false);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                if (!uploadMutation.isPending) setIsDragging(true);
-              }}
-              onDrop={handleDrop}
-              role="region"
-            >
-              <input
-                accept={fileAccept}
-                aria-label="Choose a source document"
-                className="document-dropzone__input"
-                disabled={uploadMutation.isPending}
-                onChange={(event) => {
-                  if (event.currentTarget.files) {
-                    selectFiles(event.currentTarget.files);
-                  }
-                  event.currentTarget.value = "";
-                }}
-                ref={inputRef}
-                tabIndex={-1}
-                type="file"
-              />
-              <span className="document-dropzone__icon">
-                <Files aria-hidden="true" size={22} />
+        {canUploadDocuments ? (
+          <Card as="section" className="document-upload-card">
+            <div className="document-section-heading">
+              <span className="document-section-heading__icon">
+                <FileUp aria-hidden="true" size={18} />
               </span>
-              <strong>Drop a file here</strong>
-              <span>or choose one from your device</span>
-              <Button
-                disabled={uploadMutation.isPending}
-                onClick={() => inputRef.current?.click()}
-                size="small"
-                type="button"
-                variant="secondary"
-              >
-                Browse files
-              </Button>
-              <small>PDF, DOCX, or plain-text TXT</small>
+              <div>
+                <h2>Add a document</h2>
+                <p>One file per upload · up to 5 MiB</p>
+              </div>
             </div>
 
-            {selectionError ? (
-              <p className="document-inline-error" role="alert">
-                {selectionError}
-              </p>
-            ) : null}
-
-            {selectedFile ? (
-              <div className="document-selected-file" role="status">
-                <span className="document-selected-file__icon">
-                  <FileText aria-hidden="true" size={17} />
-                </span>
-                <span className="document-selected-file__details">
-                  <strong title={selectedFile.name}>{selectedFile.name}</strong>
-                  <small>
-                    {getSelectedFileTypeLabel(selectedFile)} ·{" "}
-                    {formatFileSize(selectedFile.size)}
-                  </small>
-                </span>
-                <button
-                  aria-label="Remove selected file"
-                  className="document-selected-file__remove"
-                  disabled={uploadMutation.isPending}
-                  onClick={clearSelection}
-                  type="button"
-                >
-                  <X aria-hidden="true" size={16} />
-                </button>
-              </div>
-            ) : null}
-
-            {duplicateFileName ? (
-              <p className="document-duplicate-warning" role="status">
-                A document with this filename is already listed. Uploading it
-                will not overwrite the existing document; the backend does not
-                deduplicate filenames.
-              </p>
-            ) : null}
-
-            <section
-              aria-labelledby="document-privacy-title"
-              className="document-privacy"
-            >
-              <div className="document-privacy__heading">
-                <ShieldCheck aria-hidden="true" size={17} />
-                <h3 id="document-privacy-title">Keep document sharing clear</h3>
-              </div>
-              <p>
-                Uploading stores this file in the project workspace; it does not
-                send the content to an AI provider. A future AI workflow will
-                ask for separate confirmation before sharing selected document
-                text and project context with the configured provider. Only
-                upload material you are authorized to use.
-              </p>
-              <label className="document-privacy__check">
-                <input
-                  checked={privacyConfirmed}
-                  onChange={(event) =>
-                    setPrivacyConfirmed(event.currentTarget.checked)
+            <form className="document-upload-form" onSubmit={handleSubmit}>
+              <div
+                aria-label="Drop a source document"
+                className={`document-dropzone${isDragging ? " document-dropzone--active" : ""}`}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  if (!uploadMutation.isPending) setIsDragging(true);
+                }}
+                onDragLeave={(event) => {
+                  if (
+                    event.relatedTarget instanceof Node &&
+                    event.currentTarget.contains(event.relatedTarget)
+                  ) {
+                    return;
                   }
+                  setIsDragging(false);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (!uploadMutation.isPending) setIsDragging(true);
+                }}
+                onDrop={handleDrop}
+                role="region"
+              >
+                <input
+                  accept={fileAccept}
+                  aria-label="Choose a source document"
+                  className="document-dropzone__input"
                   disabled={uploadMutation.isPending}
-                  required
-                  type="checkbox"
+                  onChange={(event) => {
+                    if (event.currentTarget.files) {
+                      selectFiles(event.currentTarget.files);
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                  ref={inputRef}
+                  tabIndex={-1}
+                  type="file"
                 />
-                <span>
-                  I confirm that I’m authorized to upload this document and
-                  understand the privacy notice above.
+                <span className="document-dropzone__icon">
+                  <Files aria-hidden="true" size={22} />
                 </span>
-              </label>
-            </section>
-
-            {uploadMutation.isPending ? (
-              <div className="document-upload-progress" role="status">
-                <div className="document-upload-progress__meta">
-                  <span>
-                    {uploadProgress < 100
-                      ? "Uploading document"
-                      : "Finishing upload"}
-                  </span>
-                  <span className="document-upload-progress__actions">
-                    {uploadProgress}%
-                    <button
-                      className="document-upload-progress__cancel"
-                      onClick={() => uploadControllerRef.current?.abort()}
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                  </span>
-                </div>
-                <progress
-                  aria-label="Document upload progress"
-                  max={100}
-                  value={uploadProgress}
-                />
+                <strong>Drop a file here</strong>
+                <span>or choose one from your device</span>
+                <Button
+                  disabled={uploadMutation.isPending}
+                  onClick={() => inputRef.current?.click()}
+                  size="small"
+                  type="button"
+                  variant="secondary"
+                >
+                  Browse files
+                </Button>
+                <small>PDF, DOCX, or plain-text TXT</small>
               </div>
-            ) : null}
 
-            {wasUploadCancelled ? (
-              <p className="document-inline-error" role="status">
-                Upload request cancelled. The server may already have received
-                the file; check the library before retrying.
-              </p>
-            ) : null}
+              {selectionError ? (
+                <p className="document-inline-error" role="alert">
+                  {selectionError}
+                </p>
+              ) : null}
 
-            {uploadError ? (
-              <ErrorPanel
-                message={uploadError.message}
-                requestId={uploadError.requestId}
-                title="Upload unsuccessful"
-              />
-            ) : null}
+              {selectedFile ? (
+                <div className="document-selected-file" role="status">
+                  <span className="document-selected-file__icon">
+                    <FileText aria-hidden="true" size={17} />
+                  </span>
+                  <span className="document-selected-file__details">
+                    <strong title={selectedFile.name}>
+                      {selectedFile.name}
+                    </strong>
+                    <small>
+                      {getSelectedFileTypeLabel(selectedFile)} ·{" "}
+                      {formatFileSize(selectedFile.size)}
+                    </small>
+                  </span>
+                  <button
+                    aria-label="Remove selected file"
+                    className="document-selected-file__remove"
+                    disabled={uploadMutation.isPending}
+                    onClick={clearSelection}
+                    type="button"
+                  >
+                    <X aria-hidden="true" size={16} />
+                  </button>
+                </div>
+              ) : null}
 
-            {uploadMutation.isSuccess && uploadMutation.data ? (
-              <p className="document-upload-success" role="status">
-                {uploadMutation.data.fileName} was added to this project.
-              </p>
-            ) : null}
+              {duplicateFileName ? (
+                <p className="document-duplicate-warning" role="status">
+                  A document with this filename is already listed. Uploading it
+                  will not overwrite the existing document; the backend does not
+                  deduplicate filenames.
+                </p>
+              ) : null}
 
-            <Button
-              className="document-upload-form__submit"
-              disabled={
-                !selectedFile ||
-                Boolean(selectionError) ||
-                !privacyConfirmed ||
-                uploadMutation.isPending
-              }
-              leadingIcon={
-                uploadMutation.isPending ? (
-                  <LoaderCircle aria-hidden="true" className="spin" size={16} />
-                ) : (
-                  <FileUp aria-hidden="true" size={16} />
-                )
-              }
-              type="submit"
-            >
-              {uploadMutation.isPending ? "Uploading" : "Upload document"}
-            </Button>
-          </form>
-        </Card>
+              <section
+                aria-labelledby="document-privacy-title"
+                className="document-privacy"
+              >
+                <div className="document-privacy__heading">
+                  <ShieldCheck aria-hidden="true" size={17} />
+                  <h3 id="document-privacy-title">
+                    Keep document sharing clear
+                  </h3>
+                </div>
+                <p>
+                  Uploading stores this file in the project workspace; it does
+                  not send the content to an AI provider. A future AI workflow
+                  will ask for separate confirmation before sharing selected
+                  document text and project context with the configured
+                  provider. Only upload material you are authorized to use.
+                </p>
+                <label className="document-privacy__check">
+                  <input
+                    checked={privacyConfirmed}
+                    onChange={(event) =>
+                      setPrivacyConfirmed(event.currentTarget.checked)
+                    }
+                    disabled={uploadMutation.isPending}
+                    required
+                    type="checkbox"
+                  />
+                  <span>
+                    I confirm that I’m authorized to upload this document and
+                    understand the privacy notice above.
+                  </span>
+                </label>
+              </section>
+
+              {uploadMutation.isPending ? (
+                <div className="document-upload-progress" role="status">
+                  <div className="document-upload-progress__meta">
+                    <span>
+                      {uploadProgress < 100
+                        ? "Uploading document"
+                        : "Finishing upload"}
+                    </span>
+                    <span className="document-upload-progress__actions">
+                      {uploadProgress}%
+                      <button
+                        className="document-upload-progress__cancel"
+                        onClick={() => uploadControllerRef.current?.abort()}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  </div>
+                  <progress
+                    aria-label="Document upload progress"
+                    max={100}
+                    value={uploadProgress}
+                  />
+                </div>
+              ) : null}
+
+              {wasUploadCancelled ? (
+                <p className="document-inline-error" role="status">
+                  Upload request cancelled. The server may already have received
+                  the file; check the library before retrying.
+                </p>
+              ) : null}
+
+              {uploadError ? (
+                <ErrorPanel
+                  message={uploadError.message}
+                  requestId={uploadError.requestId}
+                  title="Upload unsuccessful"
+                />
+              ) : null}
+
+              {uploadMutation.isSuccess && uploadMutation.data ? (
+                <p className="document-upload-success" role="status">
+                  {uploadMutation.data.fileName} was added to this project.
+                </p>
+              ) : null}
+
+              <Button
+                className="document-upload-form__submit"
+                disabled={
+                  !selectedFile ||
+                  Boolean(selectionError) ||
+                  !privacyConfirmed ||
+                  uploadMutation.isPending
+                }
+                leadingIcon={
+                  uploadMutation.isPending ? (
+                    <LoaderCircle
+                      aria-hidden="true"
+                      className="spin"
+                      size={16}
+                    />
+                  ) : (
+                    <FileUp aria-hidden="true" size={16} />
+                  )
+                }
+                type="submit"
+              >
+                {uploadMutation.isPending ? "Uploading" : "Upload document"}
+              </Button>
+            </form>
+          </Card>
+        ) : (
+          <Card as="section" className="document-upload-card">
+            <div className="document-section-heading">
+              <span className="document-section-heading__icon">
+                <Files aria-hidden="true" size={18} />
+              </span>
+              <div>
+                <h2>Read-only document access</h2>
+                <p>
+                  Business Analysts can add source documents. You can review the
+                  existing project evidence here.
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         <section
           aria-labelledby="document-list-title"

@@ -8,6 +8,8 @@ import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { useAuth } from "../features/auth/useAuth";
 import { userRoles } from "../features/auth/auth.schemas";
 import { hasPermission } from "../features/auth/permissions";
+import { getRoleLabel } from "../features/auth/role-label";
+import { AdminAccessManagement } from "../features/admin/AdminAccessManagement";
 import {
   claimFirstAdmin,
   downloadAuditExport,
@@ -43,7 +45,7 @@ const userColumns: DataTableColumn<AdminUser>[] = [
   {
     key: "roles",
     header: "Roles",
-    render: (user) => user.roles.join(", "),
+    render: (user) => user.roles.map(getRoleLabel).join(", "),
   },
   {
     key: "status",
@@ -118,7 +120,12 @@ export function AdminPage() {
   const rolesMutation = useMutation({
     mutationFn: ({ userId, roles }: { userId: string; roles: UserRole[] }) =>
       updateAdminUserRoles(userId, roles),
-    onSuccess: async () => {
+    onSuccess: async (updatedUser) => {
+      setSelectedRoles((selected) => {
+        const next = { ...selected };
+        delete next[updatedUser.id];
+        return next;
+      });
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["admin", session?.user.id, "users"],
@@ -219,8 +226,15 @@ export function AdminPage() {
                     checked={roles.includes(role)}
                     disabled={rolesMutation.isPending}
                     onChange={(event) => {
-                      const next = event.currentTarget.checked
-                        ? [...roles, role]
+                      const next: UserRole[] = event.currentTarget.checked
+                        ? role === "admin"
+                          ? ["admin"]
+                          : [
+                              ...roles.filter(
+                                (selected) => selected !== "admin",
+                              ),
+                              role,
+                            ]
                         : roles.filter((selected) => selected !== role);
                       setSelectedRoles((current) => ({
                         ...current,
@@ -229,7 +243,7 @@ export function AdminPage() {
                     }}
                     type="checkbox"
                   />
-                  <span>{role}</span>
+                  <span>{getRoleLabel(role)}</span>
                 </label>
               ))}
             </fieldset>
@@ -417,6 +431,11 @@ export function AdminPage() {
               />
             ) : null}
           </section>
+
+          <AdminAccessManagement
+            users={users}
+            usersReady={!usersQuery.isPending && !usersQuery.isError}
+          />
 
           {session?.user.id ? (
             <AdminTemplateManager userId={session.user.id} />

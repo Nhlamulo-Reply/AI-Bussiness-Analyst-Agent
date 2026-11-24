@@ -37,6 +37,8 @@ import {
 import { useRequirements } from "../features/requirements/requirement-queries";
 import { formatProjectDate } from "../features/projects/format";
 import { getApiErrorPresentation } from "../lib/api-client";
+import { useAuth } from "../features/auth/useAuth";
+import { hasPermission } from "../features/auth/permissions";
 
 const typeLabels: Record<ArtifactType, string> = {
   epic: "Epic",
@@ -96,6 +98,16 @@ export function ArtifactWorkspaceRoute() {
 
 export function ArtifactWorkspacePage() {
   const { projectId = "" } = useParams();
+  const { session } = useAuth();
+  const canPrepare = hasPermission(session?.user.roles, "analysis.prepare");
+  const canReadBusiness = hasPermission(
+    session?.user.roles,
+    "project.business.read",
+  );
+  const canReadDelivery = hasPermission(
+    session?.user.roles,
+    "project.delivery.read",
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -109,7 +121,7 @@ export function ArtifactWorkspacePage() {
     { kind: "created"; title: string } | { kind: "updated" } | undefined
   >();
   const artifactsQuery = useArtifacts(projectId, page);
-  const requirementsQuery = useRequirements(projectId, 1, 100);
+  const requirementsQuery = useRequirements(projectId, 1, 100, canPrepare);
   const createMutation = useCreateArtifact(projectId);
   const result = artifactsQuery.data;
   const targetArtifactId = searchParams.get("artifactId") ?? "";
@@ -276,16 +288,18 @@ export function ArtifactWorkspacePage() {
             requirements.
           </p>
         </div>
-        <Button
-          leadingIcon={<Plus aria-hidden="true" size={16} />}
-          onClick={() => {
-            createMutation.reset();
-            setCreateOpen(true);
-          }}
-          type="button"
-        >
-          New deliverable
-        </Button>
+        {canPrepare ? (
+          <Button
+            leadingIcon={<Plus aria-hidden="true" size={16} />}
+            onClick={() => {
+              createMutation.reset();
+              setCreateOpen(true);
+            }}
+            type="button"
+          >
+            New deliverable
+          </Button>
+        ) : null}
       </header>
 
       <Card className="artifact-overview">
@@ -389,11 +403,27 @@ export function ArtifactWorkspacePage() {
             }}
             value={typeFilter}
           >
-            {typeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            {typeOptions
+              .filter(
+                (option) =>
+                  option.value === "all" ||
+                  (canReadBusiness &&
+                    [
+                      "epic",
+                      "story",
+                      "acceptance_criteria",
+                      "business_rule",
+                    ].includes(option.value)) ||
+                  (canReadDelivery &&
+                    ["risk", "dependency", "implementation_plan"].includes(
+                      option.value,
+                    )),
+              )
+              .map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
           </select>
         </label>
       </div>
@@ -440,17 +470,27 @@ export function ArtifactWorkspacePage() {
           <div className="artifact-empty-panel">
             <EmptyState
               action={
-                <Button
-                  leadingIcon={<Plus aria-hidden="true" size={16} />}
-                  onClick={() => setCreateOpen(true)}
-                  type="button"
-                >
-                  Create a deliverable
-                </Button>
+                canPrepare ? (
+                  <Button
+                    leadingIcon={<Plus aria-hidden="true" size={16} />}
+                    onClick={() => setCreateOpen(true)}
+                    type="button"
+                  >
+                    Create a deliverable
+                  </Button>
+                ) : undefined
               }
-              description="Create a story, risk, plan, or other structured artifact and connect it to project requirements."
+              description={
+                canPrepare
+                  ? "Create a story, risk, plan, or other structured artifact and connect it to project requirements."
+                  : "No deliverables are available for this project yet."
+              }
               icon={Layers3}
-              title="Your deliverables workspace is ready"
+              title={
+                canPrepare
+                  ? "Your deliverables workspace is ready"
+                  : "No deliverables yet"
+              }
             />
           </div>
         ) : null}
@@ -533,37 +573,39 @@ export function ArtifactWorkspacePage() {
         </p>
       ) : null}
 
-      <Dialog
-        className="artifact-create-dialog"
-        description="Create a project deliverable as a draft. Link requirements and preserve any structured type-specific data."
-        onOpenChange={(open) => {
-          setCreateOpen(open);
-          if (!open) createMutation.reset();
-        }}
-        open={createOpen}
-        title="Create a deliverable"
-      >
-        <ArtifactForm
-          isSubmitting={createMutation.isPending}
-          mode="create"
-          onCancel={() => setCreateOpen(false)}
-          onRetryRequirements={() => void requirementsQuery.refetch()}
-          onSubmit={submitCreate}
-          requirements={requirementsQuery.data?.items ?? []}
-          requirementsError={
-            requirementsQuery.isError
-              ? getApiErrorPresentation(
-                  requirementsQuery.error,
-                  "Requirements couldn't be loaded.",
-                ).message
-              : undefined
-          }
-          requirementsLoading={requirementsQuery.isPending}
-          submissionError={
-            createMutation.isError ? createError.message : undefined
-          }
-        />
-      </Dialog>
+      {canPrepare ? (
+        <Dialog
+          className="artifact-create-dialog"
+          description="Create a project deliverable as a draft. Link requirements and preserve any structured type-specific data."
+          onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) createMutation.reset();
+          }}
+          open={createOpen}
+          title="Create a deliverable"
+        >
+          <ArtifactForm
+            isSubmitting={createMutation.isPending}
+            mode="create"
+            onCancel={() => setCreateOpen(false)}
+            onRetryRequirements={() => void requirementsQuery.refetch()}
+            onSubmit={submitCreate}
+            requirements={requirementsQuery.data?.items ?? []}
+            requirementsError={
+              requirementsQuery.isError
+                ? getApiErrorPresentation(
+                    requirementsQuery.error,
+                    "Requirements couldn't be loaded.",
+                  ).message
+                : undefined
+            }
+            requirementsLoading={requirementsQuery.isPending}
+            submissionError={
+              createMutation.isError ? createError.message : undefined
+            }
+          />
+        </Dialog>
+      ) : null}
 
       {selectedArtifact ? (
         <ArtifactDetailsDialog

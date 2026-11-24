@@ -11,6 +11,7 @@ import {
   ResetPasswordPage,
   GoogleCallbackPage,
   CreateProjectPage,
+  DeliveryReviewWorkspacePage,
   CreateRequirementRoute,
   NotFoundPage,
   OverviewPage,
@@ -23,8 +24,18 @@ import {
   SuspendedPage,
   WorkflowWorkbenchRoute,
 } from "./lazy-pages";
+import { hasPermission } from "../features/auth/permissions";
+import { useAuth } from "../features/auth/useAuth";
 
 const page = (element: ReactNode) => <SuspendedPage>{element}</SuspendedPage>;
+
+function AppIndexRoute() {
+  const { session } = useAuth();
+  if (!hasPermission(session?.user.roles, "project.read")) {
+    return <Navigate to="/app/admin" replace />;
+  }
+  return page(<OverviewPage />);
+}
 
 export const router = createBrowserRouter([
   {
@@ -59,10 +70,14 @@ export const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: page(<OverviewPage />) },
+      { index: true, element: <AppIndexRoute /> },
       {
         path: "projects",
-        element: page(<ProjectListPage />),
+        element: (
+          <RequirePermission permission="project.read">
+            {page(<ProjectListPage />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/new",
@@ -74,12 +89,16 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects/:projectId",
-        element: page(<ProjectOverviewPage />),
+        element: (
+          <RequirePermission permission="project.read">
+            {page(<ProjectOverviewPage />)}
+          </RequirePermission>
+        ),
       },
       {
         path: "projects/:projectId/documents",
         element: (
-          <RequirePermission permission="project.read">
+          <RequirePermission permission="project.business.read">
             {page(<ProjectDocumentLibraryRoute />)}
           </RequirePermission>
         ),
@@ -87,7 +106,7 @@ export const router = createBrowserRouter([
       {
         path: "projects/:projectId/requirements",
         element: (
-          <RequirePermission permission="project.read">
+          <RequirePermission permission="project.business.read">
             {page(<RequirementListRoute />)}
           </RequirePermission>
         ),
@@ -111,7 +130,9 @@ export const router = createBrowserRouter([
       {
         path: "projects/:projectId/artifacts",
         element: (
-          <RequirePermission permission="project.read">
+          <RequirePermission
+            permission={["project.business.read", "project.delivery.read"]}
+          >
             {page(<ArtifactWorkspaceRoute />)}
           </RequirePermission>
         ),
@@ -125,9 +146,17 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: "projects/:projectId/delivery-reviews",
+        element: (
+          <RequirePermission permission="delivery.review">
+            {page(<DeliveryReviewWorkspacePage />)}
+          </RequirePermission>
+        ),
+      },
+      {
         path: "projects/:projectId/exports",
         element: (
-          <RequirePermission permission="project.read">
+          <RequirePermission permission="project.export">
             {page(<ProjectExportRoute />)}
           </RequirePermission>
         ),
