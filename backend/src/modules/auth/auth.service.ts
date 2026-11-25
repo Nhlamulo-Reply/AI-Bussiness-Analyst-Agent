@@ -1,7 +1,11 @@
 import bcrypt from "bcryptjs";
 import { sign } from "jsonwebtoken";
 import { AppError } from "../../common/errors/app-error";
-import { DuplicateUserError, type UserRepository } from "./user.repository";
+import {
+  DuplicateUserError,
+  normalizeUserRoles,
+  type UserRepository,
+} from "./user.repository";
 
 export interface AuthConfig {
   jwtSecret: string;
@@ -25,11 +29,13 @@ export class AuthService {
       const user = await this.users.insertUser({
         email: normalizedEmail,
         passwordHash: await bcrypt.hash(password, 12),
-        roles: ["user"],
+        roles: [],
+        active: true,
+        sessionVersion: 0,
         createdAt: now,
         updatedAt: now
       });
-      return this.createSession(user);
+      return this.createSession({ ...user, sessionVersion: user.sessionVersion ?? 0 });
     } catch (error) {
       if (error instanceof DuplicateUserError) {
         throw new AppError(409, "EMAIL_ALREADY_REGISTERED", "An account with this email already exists.");
@@ -40,25 +46,30 @@ export class AuthService {
 
   async login(email: string, password: string): Promise<{ accessToken: string; user: AuthUser }> {
     const user = await this.users.findByEmail(email.trim().toLowerCase());
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
     }
-    return this.createSession(user);
+    if (!user.active) {
+      throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+    return this.createSession({ ...user, sessionVersion: user.sessionVersion ?? 0 });
   }
 
-  private createSession(user: {
+  createSession(user: {
     id: string;
     email: string;
-    roles: Array<"user" | "reviewer" | "admin" | "project_owner">;
+    roles: Array<"business_analyst" | "product_owner" | "delivery_lead" | "admin">;
+    sessionVersion: number;
   }): { accessToken: string; user: AuthUser } {
+    const roles = normalizeUserRoles(user.roles);
     const accessToken = sign(
-      { roles: user.roles, email: user.email },
+      { roles, email: user.email, sessionVersion: user.sessionVersion },
       this.config.jwtSecret,
       { subject: user.id, expiresIn: this.config.jwtTtlSeconds }
     );
     return {
       accessToken,
-      user: { id: user.id, email: user.email, roles: user.roles }
+      user: { id: user.id, email: user.email, roles }
     };
   }
 }
@@ -66,5 +77,5 @@ export class AuthService {
 export interface AuthUser {
   id: string;
   email: string;
-  roles: Array<"user" | "reviewer" | "admin" | "project_owner">;
+  roles: Array<"business_analyst" | "product_owner" | "delivery_lead" | "admin">;
 }

@@ -3,6 +3,7 @@ import { Router } from "express";
 import type { Storage } from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
 import { authenticate } from "../../common/middleware/authentication";
+import { requirePermission } from "../../common/middleware/authorization";
 import { getAuthenticatedUser, getRouteParam } from "../../common/middleware/current-user";
 import { requireProjectAccess } from "../../common/middleware/project-access";
 import { parsePagination } from "../../common/utils/pagination";
@@ -11,10 +12,11 @@ import { createRequirementBodySchema, patchRequirementBodySchema } from "../doma
 
 export function createRequirementRouter(storage: Storage, jwtSecret: string): Router {
   const router = Router();
-  router.use(authenticate(jwtSecret));
+  router.use(authenticate(jwtSecret, storage));
 
   router.post(
     "/projects/:projectId/requirements",
+    requirePermission("analysis.prepare"),
     requireProjectAccess(storage),
     validateBody(createRequirementBodySchema),
     async (request, response, next) => {
@@ -67,6 +69,7 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
 
   router.get(
     "/projects/:projectId/requirements",
+    requirePermission("project.business.read"),
     requireProjectAccess(storage),
     async (request, response, next) => {
       try {
@@ -81,6 +84,7 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
 
   router.patch(
     "/requirements/:id",
+    requirePermission("analysis.prepare"),
     validateBody(patchRequirementBodySchema),
     async (request, response, next) => {
       try {
@@ -101,7 +105,10 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
     }
   );
 
-  router.get("/requirements/:id/versions", async (request, response, next) => {
+  router.get(
+    "/requirements/:id/versions",
+    requirePermission("project.business.read"),
+    async (request, response, next) => {
     try {
       const user = getAuthenticatedUser(request);
       const requirementId = getRouteParam(request, "id");
@@ -114,7 +121,8 @@ export function createRequirementRouter(storage: Storage, jwtSecret: string): Ro
     } catch (error) {
       next(error);
     }
-  });
+    },
+  );
 
   return router;
 }
