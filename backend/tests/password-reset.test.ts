@@ -11,6 +11,8 @@ import { JsonFileStorage } from "../src/config/storage";
 const config: AppConfig = {
   environment: "test",
   port: 3000,
+  mongoUri: "mongodb://127.0.0.1:27017",
+  mongoDatabase: "ai_business_analyst_agent_test",
   jsonStoragePath: "./data/test.json",
   jwtSecret: "a-secure-test-secret-with-at-least-32-characters",
   jwtTtlSeconds: 900,

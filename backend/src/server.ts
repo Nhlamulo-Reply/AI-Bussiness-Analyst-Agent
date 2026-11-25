@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createServer } from "node:http";
 import { createApp } from "./app";
 import { loadConfig } from "./config/env";
-import { JsonFileStorage } from "./config/storage";
+import { MongoStorage } from "./config/storage";
 import { createLogger } from "./config/logger";
 import { WorkflowService } from "./workflows/workflow-service";
 import { createStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
@@ -13,14 +13,21 @@ export async function startServer(): Promise<{
 }> {
   const config = loadConfig();
   const logger = createLogger(config);
-  const storage = new JsonFileStorage(config);
+  const storage = new MongoStorage(config);
 
   try {
     await storage.connect();
   } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+            .replaceAll(config.mongoUri, "[redacted MongoDB URI]")
+            .replace(/mongodb(?:\+srv)?:\/\/[^\s"'<>]+/gi, "[redacted MongoDB URI]")
+        : "Unknown MongoDB connection error";
     logger.fatal({
-      errorName: error instanceof Error ? error.name : "UnknownError"
-    }, "JSON storage initialization failed; server startup aborted");
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage,
+    }, "MongoDB storage initialization failed; server startup aborted");
     throw error;
   }
 
@@ -77,7 +84,7 @@ if (require.main === module) {
     if (error instanceof Error && error.message.startsWith("Invalid environment configuration:")) {
       console.error(error.message);
     } else {
-      console.error("Backend startup failed; check the configuration and JSON storage file access.");
+      console.error("Backend startup failed; check the configuration and MongoDB connectivity.");
     }
     process.exitCode = 1;
   });
