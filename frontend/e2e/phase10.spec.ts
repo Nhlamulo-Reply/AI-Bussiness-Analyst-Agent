@@ -116,6 +116,11 @@ test("public landing page is accessible and routes visitors to account access", 
   await expect(
     page.getByRole("link", { name: "Get Started" }).first(),
   ).toHaveAttribute("href", "/register");
+  const brand = page.locator(".landing-ref__brand");
+  await expect(brand.locator("img")).toBeVisible();
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expect(brand).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expectNoVerticalOverflow(page);
   await expectResponsiveAndAccessible(page);
 
@@ -155,6 +160,22 @@ test("login is keyboard-accessible and reflows without horizontal scrolling", as
 }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/login");
+  await expect(page.locator(".auth-page__visual")).toHaveCount(0);
+  await expect(page.locator(".auth-page__brand")).toBeVisible();
+  await expect(page.locator(".auth-page__content")).toHaveCSS(
+    "align-items",
+    "center",
+  );
+  const cardShadow = await page
+    .locator(".auth-page__card")
+    .evaluate((element) => getComputedStyle(element).boxShadow);
+  expect(cardShadow).not.toBe("none");
+  const brandBox = await page.locator(".auth-page__brand").boundingBox();
+  const cardBox = await page.locator(".auth-page__card").boundingBox();
+  if (!brandBox || !cardBox) {
+    throw new Error("The auth logo or form card is not visible.");
+  }
+  expect(cardBox.y - brandBox.y - brandBox.height).toBeLessThan(30);
   await expectNoHorizontalOverflow(page);
 
   await expectNoAccessibilityViolations(page);
@@ -352,6 +373,28 @@ test("authenticated project export downloads through the protected route", async
     page.getByRole("heading", { name: "AI workflow workbench" }),
   ).toBeVisible();
   await expectResponsiveAndAccessible(page);
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const workflowChoiceColors = await page
+    .locator(".workflow-choice")
+    .nth(1)
+    .evaluate((element) => {
+      const title = element.querySelector("strong");
+      if (!title) throw new Error("Workflow choice title is missing.");
+      return {
+        background: getComputedStyle(element).backgroundColor,
+        foreground: getComputedStyle(title).color,
+      };
+    });
+  expect(workflowChoiceColors.background).not.toBe("rgb(255, 255, 255)");
+  expect(workflowChoiceColors.foreground).not.toBe("rgb(255, 255, 255)");
+  const contextCountBackground = await page
+    .locator(".workflow-context-counts > div")
+    .first()
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(contextCountBackground).not.toBe("rgb(255, 255, 255)");
+  await expectNoAccessibilityViolations(page);
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
 
   await page.getByRole("link", { name: "Deliverables", exact: true }).click();
   await expect(
