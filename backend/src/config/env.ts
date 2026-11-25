@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 
 const environmentSchema = z.object({
@@ -5,6 +6,28 @@ const environmentSchema = z.object({
     .enum(["development", "test", "production"])
     .default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  MONGODB_URI: z
+    .string()
+    .trim()
+    .min(1)
+    .default("mongodb://127.0.0.1:27017"),
+  MONGODB_DATABASE: z
+    .string()
+    .trim()
+    .min(1)
+    .default("ai_business_analyst_agent"),
+  MONGODB_DNS_SERVERS: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) =>
+      value ? value.split(",").map((server) => server.trim()) : undefined,
+    )
+    .pipe(z.array(z.string().min(1)).optional())
+    .refine(
+      (servers) => servers === undefined || servers.every((server) => isIP(server) !== 0),
+      "Must contain comma-separated IPv4 or IPv6 addresses",
+    ),
   JSON_STORAGE_PATH: z
     .string()
     .trim()
@@ -43,6 +66,9 @@ const environmentSchema = z.object({
 export type AppConfig = {
   environment: "development" | "test" | "production";
   port: number;
+  mongoUri: string;
+  mongoDatabase: string;
+  mongoDnsServers?: string[];
   jsonStoragePath: string;
   jwtSecret: string;
   adminBootstrapToken?: string;
@@ -86,6 +112,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     environment: parsed.data.NODE_ENV,
     port: parsed.data.PORT,
+    mongoUri: parsed.data.MONGODB_URI,
+    mongoDatabase: parsed.data.MONGODB_DATABASE,
+    mongoDnsServers: parsed.data.MONGODB_DNS_SERVERS,
     jsonStoragePath: parsed.data.JSON_STORAGE_PATH,
     jwtSecret: parsed.data.JWT_SECRET,
     adminBootstrapToken: parsed.data.ADMIN_BOOTSTRAP_TOKEN,
