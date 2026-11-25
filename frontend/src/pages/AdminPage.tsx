@@ -45,12 +45,17 @@ const userColumns: DataTableColumn<AdminUser>[] = [
   {
     key: "roles",
     header: "Roles",
-    render: (user) => user.roles.map(getRoleLabel).join(", "),
+    render: (user) => user.roles.map(getRoleLabel).join(", ") || "No role",
   },
   {
     key: "status",
     header: "Status",
-    render: (user) => (user.active ? "Active" : "Inactive"),
+    render: (user) =>
+      user.roles.length === 0
+        ? "Awaiting role assignment"
+        : user.active
+          ? "Active"
+          : "Inactive",
   },
   {
     key: "created",
@@ -250,7 +255,6 @@ export function AdminPage() {
             <Button
               disabled={
                 rolesMutation.isPending ||
-                roles.length === 0 ||
                 roles.join("|") === user.roles.join("|")
               }
               onClick={() => rolesMutation.mutate({ userId: user.id, roles })}
@@ -372,6 +376,10 @@ export function AdminPage() {
                   {usersQuery.data
                     ? `${usersQuery.data.total} registered users`
                     : "Loading user directory"}
+                </p>
+                <p>
+                  Users awaiting role assignment have no workspace permissions.
+                  Assign a role before they can use the application.
                 </p>
               </div>
               <Button

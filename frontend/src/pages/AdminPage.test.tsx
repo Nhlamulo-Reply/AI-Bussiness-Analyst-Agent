@@ -61,6 +61,15 @@ const memberUser: AdminUser = {
   updatedAt: "2026-03-04T05:06:07.000Z",
 };
 
+const pendingUser: AdminUser = {
+  id: "pending-1",
+  email: "pending@example.test",
+  roles: [],
+  active: true,
+  createdAt: "2026-03-04T05:06:07.000Z",
+  updatedAt: "2026-03-04T05:06:07.000Z",
+};
+
 function renderAdminPage(isAdmin: boolean) {
   vi.mocked(useAuth).mockReturnValue({
     session: {
@@ -167,6 +176,80 @@ describe("AdminPage", () => {
         "business_analyst",
         "product_owner",
       ]),
+    );
+  });
+
+  it("shows pending users without roles and lets an admin assign one", async () => {
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser, pendingUser],
+      page: 1,
+      limit: 100,
+      total: 2,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    vi.mocked(updateAdminUserRoles).mockResolvedValue({
+      id: pendingUser.id,
+      email: pendingUser.email,
+      roles: ["business_analyst"],
+    });
+    renderAdminPage(true);
+    const user = userEvent.setup();
+
+    expect(
+      await screen.findByText("Awaiting role assignment"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getAllByRole("checkbox", {
+        name: "Business Analyst",
+      })[0],
+    );
+    await user.click(screen.getAllByRole("button", { name: "Save roles" })[0]);
+
+    await waitFor(() =>
+      expect(updateAdminUserRoles).toHaveBeenCalledWith(pendingUser.id, [
+        "business_analyst",
+      ]),
+    );
+  });
+
+  it("allows an admin to remove a user's roles and return them to pending access", async () => {
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser, memberUser],
+      page: 1,
+      limit: 100,
+      total: 2,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    vi.mocked(updateAdminUserRoles).mockResolvedValue({
+      id: memberUser.id,
+      email: memberUser.email,
+      roles: [],
+    });
+    renderAdminPage(true);
+    const user = userEvent.setup();
+
+    await screen.findByText("member@example.test");
+    await user.click(
+      screen.getAllByRole("checkbox", {
+        name: "Business Analyst",
+      })[0],
+    );
+    await user.click(screen.getAllByRole("button", { name: "Save roles" })[0]);
+
+    await waitFor(() =>
+      expect(updateAdminUserRoles).toHaveBeenCalledWith(memberUser.id, []),
     );
   });
 

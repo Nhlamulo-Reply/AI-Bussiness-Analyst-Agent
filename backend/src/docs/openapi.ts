@@ -57,10 +57,13 @@ export const openApiDocument = {
     },
     "/auth/register": {
       post: {
-        summary: "Register a standard user account",
+        summary: "Register an account pending administrator role assignment",
         requestBody: jsonBody({ $ref: "#/components/schemas/Credentials" }),
         responses: {
-          "201": { description: "Account created" },
+          "201": {
+            description:
+              "Account created with no assigned roles; workspace access waits for an administrator",
+          },
           "400": { description: "Request validation failed" },
           "409": { description: "Email is already registered" },
         },

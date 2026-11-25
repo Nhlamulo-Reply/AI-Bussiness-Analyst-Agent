@@ -238,7 +238,7 @@ The analysis route also identifies stakeholders before extraction. Story generat
 ## 8. Authentication and project access in plain language
 
 - Registration stores a bcryptjs password hash (cost factor 12), not the raw password.
-- New accounts receive only the `user` role. Elevated roles are not self-assigned through registration.
+- New accounts receive no roles until an administrator assigns one. Self-registration cannot assign roles.
 - Login issues a JWT whose subject is the user's generated string ID and whose claims include the user's roles.
 - `authenticate()` verifies the token before setting `request.user`.
 - `requireRoles()` can guard routes that require a specific role.

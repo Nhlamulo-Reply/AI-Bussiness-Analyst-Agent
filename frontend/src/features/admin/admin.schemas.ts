@@ -84,7 +84,6 @@ export const auditEventSchema = z
 export const auditEventPageSchema = pageSchema(auditEventSchema);
 export const updateUserRolesSchema = z
   .array(z.enum(userRoles))
-  .min(1)
   .max(userRoles.length)
   .refine(
     (roles) => !roles.includes("admin") || roles.length === 1,

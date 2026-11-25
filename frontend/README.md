@@ -171,8 +171,11 @@ instructions cover the frontend only and make no production-readiness claim
 about backend hosting or storage.
 
 Authentication uses short-lived bearer tokens held in memory only. Reloading or
-closing the page clears the session and requires signing in again. New accounts
-receive the `business_analyst` role; the other roles are assigned separately.
+closing the page clears the session and requires signing in again. New email and
+Google accounts start with no roles and are held at a pending-access screen
+until an administrator assigns a role. The user must sign in again after role
+assignment. The first administrator can still be claimed through the configured
+one-time bootstrap flow.
 Project pages require the appropriate role permission and project ownership or
 membership; an administrator-only account is directed to Administration.
 Administrators can manage user roles, create or resend copyable one-time

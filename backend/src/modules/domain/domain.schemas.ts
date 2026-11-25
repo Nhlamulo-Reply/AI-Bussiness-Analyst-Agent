@@ -366,7 +366,6 @@ export const updateUserRolesBodySchema = z
   .object({
     roles: z
       .array(z.enum(userRoles))
-      .min(1)
       .max(userRoles.length)
       .refine(
         (roles) => new Set(roles).size === roles.length,

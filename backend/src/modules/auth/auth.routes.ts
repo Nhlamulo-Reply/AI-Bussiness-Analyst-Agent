@@ -301,7 +301,7 @@ export function createAuthRouter(
         user = await users.insertUser({
           email: payload.email.trim().toLowerCase(),
           googleSubject: payload.sub,
-          roles: ["business_analyst"],
+          roles: [],
           active: true,
           sessionVersion: 0,
           createdAt: new Date().toISOString(),

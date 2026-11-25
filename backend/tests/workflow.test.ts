@@ -2,10 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { sign } from "jsonwebtoken";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { AppConfig } from "../src/config/env";
 import { JsonFileStorage } from "../src/config/storage";
+import type { UserRecord } from "../src/modules/auth/user.repository";
 import type { StructuredOutputProvider } from "../src/integrations/llm/structured-output-provider";
 import { WorkflowService } from "../src/workflows/workflow-service";
 import type { z } from "zod";
@@ -471,7 +473,11 @@ it("generates traceable stories and testable acceptance criteria from a project 
         description: "x".repeat(2500),
         type: "functional",
       });
-    expect(unrelatedRequirement.status).toBe(201);
+    if (unrelatedRequirement.status !== 201) {
+      throw new Error(
+        `Unrelated requirement creation failed: ${JSON.stringify(unrelatedRequirement.body)}`,
+      );
+    }
   }
   const provider = new FakeStructuredOutputProvider(
     "",
@@ -764,10 +770,25 @@ async function registerUser(
   const response = await request(app)
     .post("/api/v1/auth/register")
     .send({ email, password: "a-long-test-password" });
+  const id = response.body.data.user.id as string;
+  const user = await storage.updateUserRoles(id, ["business_analyst"]);
+  if (!user) throw new Error("Registered test user could not be found.");
   return {
-    id: response.body.data.user.id,
-    token: response.body.data.accessToken,
+    id,
+    token: createTestToken(user),
   };
+}
+
+function createTestToken(user: UserRecord): string {
+  return sign(
+    {
+      email: user.email,
+      roles: user.roles,
+      sessionVersion: user.sessionVersion ?? 0,
+    },
+    config.jwtSecret,
+    { subject: user.id, expiresIn: config.jwtTtlSeconds },
+  );
 }
 
 async function createProject(

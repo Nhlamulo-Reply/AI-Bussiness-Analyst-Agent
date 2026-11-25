@@ -29,7 +29,7 @@ export class AuthService {
       const user = await this.users.insertUser({
         email: normalizedEmail,
         passwordHash: await bcrypt.hash(password, 12),
-        roles: ["business_analyst"],
+        roles: [],
         active: true,
         sessionVersion: 0,
         createdAt: now,

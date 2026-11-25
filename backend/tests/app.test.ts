@@ -2,11 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { sign } from "jsonwebtoken";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { AppConfig } from "../src/config/env";
 import { JsonFileStorage } from "../src/config/storage";
 import { openApiDocument } from "../src/docs/openapi";
+import type { UserRecord } from "../src/modules/auth/user.repository";
 
 const config: AppConfig = {
   environment: "test",
@@ -91,7 +93,7 @@ describe("backend foundation", () => {
     );
   });
 
-  it("registers standard users and authenticates them with a bearer token", async () => {
+  it("registers users without roles until an administrator assigns access", async () => {
     const registration = await request(app).post("/api/v1/auth/register").send({
       email: " Analyst@Example.com ",
       password: "a-long-test-password",
@@ -104,34 +106,51 @@ describe("backend foundation", () => {
     expect(registration.status).toBe(201);
     expect(registration.body.data.user).toMatchObject({
       email: "analyst@example.com",
-      roles: ["business_analyst"],
+      roles: [],
     });
     expect(profile.status).toBe(200);
     expect(profile.body.data.user.email).toBe("analyst@example.com");
-    expect(profile.body.data.user.roles).toEqual(["business_analyst"]);
+    expect(profile.body.data.user.roles).toEqual([]);
 
-    const login = await request(app)
+    const inaccessibleProjectCreation = await request(app)
+      .post("/api/v1/projects")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Pending account project" });
+    const pendingLogin = await request(app)
       .post("/api/v1/auth/login")
       .send({ email: "analyst@example.com", password: "a-long-test-password" });
     const failedLogin = await request(app)
       .post("/api/v1/auth/login")
       .send({ email: "analyst@example.com", password: "a-different-password" });
 
-    expect(login.status).toBe(200);
-    expect(login.body.data.user.id).toBe(registration.body.data.user.id);
+    expect(inaccessibleProjectCreation.status).toBe(403);
+    expect(pendingLogin.status).toBe(200);
+    expect(pendingLogin.body.data.user.roles).toEqual([]);
     expect(failedLogin.status).toBe(401);
     expect(failedLogin.body.error.code).toBe("INVALID_CREDENTIALS");
+
+    await storage.updateUserRoles(registration.body.data.user.id, [
+      "business_analyst",
+    ]);
+    const staleProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${token}`);
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "analyst@example.com", password: "a-long-test-password" });
+
+    expect(staleProfile.status).toBe(401);
+    expect(login.status).toBe(200);
+    expect(login.body.data.user.id).toBe(registration.body.data.user.id);
+    expect(login.body.data.user.roles).toEqual(["business_analyst"]);
   });
 
   it("rejects unauthenticated and inaccessible project requests", async () => {
     const unauthenticated = await request(app).get("/api/v1/auth/me");
-    const registration = await request(app)
-      .post("/api/v1/auth/register")
-      .send({ email: "person@example.com", password: "a-long-test-password" });
-    const token = registration.body.data.accessToken as string;
+    const user = await registerUser("person@example.com");
     const inaccessible = await request(app)
       .get(`/api/v1/projects/${randomUUID()}`)
-      .set("Authorization", `Bearer ${token}`);
+      .set("Authorization", `Bearer ${user.token}`);
 
     expect(unauthenticated.status).toBe(401);
     expect(inaccessible.status).toBe(404);
@@ -412,8 +431,12 @@ describe("backend foundation", () => {
       users: storage,
     });
 
-    const firstCandidate = await registerUser("bootstrap-first@example.com");
-    const secondCandidate = await registerUser("bootstrap-second@example.com");
+    const firstCandidate = await registerPendingUser(
+      "bootstrap-first@example.com",
+    );
+    const secondCandidate = await registerPendingUser(
+      "bootstrap-second@example.com",
+    );
     const forbiddenUserList = await request(bootstrapApp)
       .get("/api/v1/admin/users")
       .set("Authorization", `Bearer ${firstCandidate.token}`);
@@ -470,6 +493,13 @@ describe("backend foundation", () => {
       .patch(`/api/v1/users/${target.id}/roles`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ roles: ["business_analyst", "product_owner"] });
+    const pendingRoleUpdate = await request(bootstrapApp)
+      .patch(`/api/v1/users/${target.id}/roles`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ roles: [] });
+    const invalidatedTargetSession = await request(bootstrapApp)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${target.token}`);
     const auditResponse = await request(bootstrapApp)
       .get("/api/v1/admin/audit-events")
       .set("Authorization", `Bearer ${adminToken}`);
@@ -486,6 +516,9 @@ describe("backend foundation", () => {
     ).toBe(true);
     expect(incompatibleRoleUpdate.status).toBe(400);
     expect(roleUpdate.status).toBe(200);
+    expect(pendingRoleUpdate.status).toBe(200);
+    expect(pendingRoleUpdate.body.data.roles).toEqual([]);
+    expect(invalidatedTargetSession.status).toBe(401);
     expect(auditResponse.status).toBe(200);
     expect(
       auditResponse.body.data.items.map(
@@ -1397,7 +1430,10 @@ describe("backend foundation", () => {
     const registration = await request(app)
       .post("/api/v1/auth/register")
       .send({ email: "openapi@example.com", password: "a-long-test-password" });
-    const token = registration.body.data.accessToken as string;
+    await storage.updateUserRoles(registration.body.data.user.id, [
+      "business_analyst",
+    ]);
+    const token = await login("openapi@example.com");
     const project = await request(app)
       .post("/api/v1/projects")
       .set("Authorization", `Bearer ${token}`)
@@ -1477,6 +1513,21 @@ async function registerUser(
   const response = await request(app)
     .post("/api/v1/auth/register")
     .send({ email, password: "a-long-test-password" });
+  const id = response.body.data.user.id as string;
+  const user = await storage.updateUserRoles(id, ["business_analyst"]);
+  if (!user) throw new Error("Registered test user could not be found.");
+  return {
+    id,
+    token: createTestToken(user),
+  };
+}
+
+async function registerPendingUser(
+  email: string,
+): Promise<{ id: string; token: string }> {
+  const response = await request(app)
+    .post("/api/v1/auth/register")
+    .send({ email, password: "a-long-test-password" });
   return {
     id: response.body.data.user.id,
     token: response.body.data.accessToken,
@@ -1490,10 +1541,27 @@ async function login(email: string): Promise<string> {
   return response.body.data.accessToken as string;
 }
 
+function createTestToken(user: UserRecord): string {
+  return sign(
+    {
+      email: user.email,
+      roles: user.roles,
+      sessionVersion: user.sessionVersion ?? 0,
+    },
+    config.jwtSecret,
+    { subject: user.id, expiresIn: config.jwtTtlSeconds },
+  );
+}
+
 async function createProject(token: string): Promise<{ id: string }> {
   const response = await request(app)
     .post("/api/v1/projects")
     .set("Authorization", `Bearer ${token}`)
     .send({ name: "Test project" });
+  if (response.status !== 201 || typeof response.body.data?.id !== "string") {
+    throw new Error(
+      `Test project creation failed: ${JSON.stringify(response.body)}`,
+    );
+  }
   return response.body.data as { id: string };
 }

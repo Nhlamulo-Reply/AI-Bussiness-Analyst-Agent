@@ -17,8 +17,10 @@ ownership or membership remains an independent requirement for project content.
 The backend role union is defined in
 `backend/src/modules/auth/user.repository.ts`; its permission map is in
 `backend/src/common/authorization/permissions.ts`. Admin is mutually exclusive
-with project roles. Bootstrap replaces the registering account's role with
-`admin`; role assignment and invitations reject mixed Admin/project roles.
+with project roles. Self-registered users have no roles or application
+permissions until an administrator assigns them. Bootstrap assigns `admin` to
+the registering account; role assignment and invitations reject mixed
+Admin/project roles.
 Stored legacy combinations are normalized to Admin-only for authorization and
 user listings.
 

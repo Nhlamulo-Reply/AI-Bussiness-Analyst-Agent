@@ -10,6 +10,7 @@ import {
   ForgotPasswordPage,
   ResetPasswordPage,
   GoogleCallbackPage,
+  PendingAccessPage,
   CreateProjectPage,
   DeliveryReviewWorkspacePage,
   CreateRequirementRoute,
@@ -61,6 +62,14 @@ export const router = createBrowserRouter([
   {
     path: "/auth/google/callback",
     element: <RequireGuest>{page(<GoogleCallbackPage />)}</RequireGuest>,
+  },
+  {
+    path: "/pending-access",
+    element: (
+      <RequireAuth allowUnassignedRoles>
+        {page(<PendingAccessPage />)}
+      </RequireAuth>
+    ),
   },
   {
     path: "/app",

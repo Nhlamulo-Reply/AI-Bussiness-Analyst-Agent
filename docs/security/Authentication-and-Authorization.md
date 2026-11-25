@@ -15,7 +15,7 @@ This document describes the current implementation and identifies the files and 
 - [auth.service.ts](../../backend/src/modules/auth/auth.service.ts) performs normalized-email lookup, bcrypt password comparison, and JWT creation.
 - Passwords are hashed with bcrypt at cost 12.
 - Email/password credentials must be 12–128 characters.
-- New accounts receive `business_analyst`.
+- Self-registered accounts have no roles until an administrator assigns them.
 - Deactivated accounts are rejected during login.
 
 ### JWT sessions
@@ -128,25 +128,14 @@ copyable setup link to the authenticated administrator. The invitee activates
 the account by setting a password; the token is single-use and expires. No
 password or raw invitation token is written to storage or audit records.
 
-## 6. Google authentication assessment
+## 6. Google authentication
 
-Google authentication does not exist.
-
-Required components:
-
-- OAuth/OIDC configuration in [env.ts](../../backend/src/config/env.ts).
-- Google client ID, client secret, callback URL, frontend redirect URL, and provider switch settings in [backend/.env.example](../../backend/.env.example).
-- Authorization initiation and callback routes in [auth.routes.ts](../../backend/src/modules/auth/auth.routes.ts).
-- State and nonce generation/validation, authorization-code exchange, ID-token verification, issuer/audience/signature/exp validation, and verified-email claim handling.
-- Recommended dependencies: a Google OIDC client library or Google's official OAuth/OIDC package. Do not implement custom ID-token verification without a maintained library.
-- Storage of provider identity and provider subject. Do not link accounts solely by matching email.
-- Google-only accounts need a passwordless or provider-only marker.
-- Existing password accounts must not be silently linked through matching email alone.
-- Google and password users must use the same JWT session mechanism.
-- Add login and registration buttons in [AuthPage.tsx](../../frontend/src/pages/AuthPage.tsx).
-- Add a callback/loading/cancellation route and secure frontend redirect handling.
-
-No Google OAuth dependency or provider configuration is present.
+Google sign-in is implemented through the authorization and callback routes in
+[auth.routes.ts](../../backend/src/modules/auth/auth.routes.ts), with OAuth
+configuration in [env.ts](../../backend/src/config/env.ts). It verifies the
+OAuth state, nonce, ID token, audience, and verified email. New Google accounts
+are created without roles and wait for administrator role assignment. Existing
+matching-email password accounts are not silently linked.
 
 ## 7. Required role-tailored frontend changes
 
@@ -163,8 +152,8 @@ No Google OAuth dependency or provider configuration is present.
 
 The following decisions should be confirmed before irreversible architectural choices:
 
-1. New password accounts receive `business_analyst`; is this the confirmed default?
-2. Google-only accounts receive `business_analyst` by default and use the same JWT strategy.
+1. Self-registered email and Google accounts remain roleless until an administrator assigns access.
+2. Google and password accounts use the same JWT session strategy after role assignment.
 3. Existing matching-email accounts are not linked by email alone. A secure sign-in reauthentication strategy or explicit verified provider linking flow is required.
 4. JWT invalidation after password reset uses server-side account/session versioning or another existing mechanism.
 5. Email delivery is local-only in development, while production uses SMTP or a provider adapter.
@@ -195,7 +184,7 @@ Google:
 
 - Mocked authorization initiation and callback.
 - Invalid state, nonce, audience, issuer, signature, expiration, and unverified-email rejection.
-- New default-role assignment.
+- New-account roleless registration and pending-access behavior.
 - Deactivated-account rejection.
 - Secure existing-account linking behavior.
 - Application JWT session output.
@@ -208,7 +197,7 @@ Google:
 - Generic reset request response.
 - SMTP adapter and local/no-email provider mode.
 - Password reset session invalidation using `sessionVersion`.
-- Google authorization initiation, callback, ID-token verification, state, nonce, issuer/audience/expiration verification, verified-email enforcement, and default `business_analyst` registration.
+- Google authorization initiation, callback, ID-token verification, state, nonce, issuer/audience/expiration verification, verified-email enforcement, and roleless registration pending administrator review.
 - Existing matching-email accounts are not silently linked.
 - Google callback produces the application's normal JWT session.
 - Role-tailored project navigation and permission-aware route guards.

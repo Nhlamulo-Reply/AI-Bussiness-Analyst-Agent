@@ -12,7 +12,13 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 
-export function RequireAuth({ children }: { children: ReactNode }) {
+export function RequireAuth({
+  children,
+  allowUnassignedRoles = false,
+}: {
+  children: ReactNode;
+  allowUnassignedRoles?: boolean;
+}) {
   const location = useLocation();
   const auth = useAuth();
 
@@ -34,6 +40,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
         state={{ from: { pathname: location.pathname } }}
       />
     );
+  }
+  if (!allowUnassignedRoles && auth.session?.user.roles.length === 0) {
+    return <Navigate replace to="/pending-access" />;
   }
   return children;
 }

@@ -6,7 +6,7 @@ This guide follows the authentication path through the backend in small chunks. 
 
 By the end, you should be able to explain:
 
-1. How `POST /api/v1/auth/register` creates a user with the default role.
+1. How `POST /api/v1/auth/register` creates a user with no assigned roles.
 2. How an administrator changes a user's role.
 3. How `POST /api/v1/auth/login` verifies credentials and creates a JWT.
 4. How later requests authenticate that JWT.
@@ -16,7 +16,7 @@ By the end, you should be able to explain:
 
 - **Authentication** answers: "Who is making this request?" Login verifies credentials once and issues a token. The `authenticate()` middleware verifies that token on each protected request.
 - **Authorization** answers: "May this authenticated user do this?" `requireRoles()` checks a role; `requireProjectAccess()` checks project ownership or membership.
-- A new account starts with the `user` role. Role assignment is a separate admin action. A login copies the user's current roles into a new token. Existing tokens keep their old role claims until they expire, so the user must log in again to receive updated roles.
+- A new account starts with no roles and has no application permissions until an administrator assigns one. A login copies the user's current roles into a new token. Role changes invalidate existing tokens, so the user must log in again to receive updated roles.
 - The `project_owner` user role is not the same check as owning a particular project. Project access is determined from each project's `ownerUserId` and `members`.
 
 ## End-to-end architecture flow
@@ -33,8 +33,8 @@ flowchart TD
     VALIDATE --> REG["auth.service.ts<br/>AuthService.register()"]
     REG --> HASH["bcrypt.hash(password, 12)"]
     HASH --> INSERT["storage.ts<br/>insertUser()"]
-    INSERT --> DEFAULTROLE["roles = [user]"]
-    DEFAULTROLE --> SIGNREG["AuthService.createSession()"]
+    INSERT --> NOROLE["roles = []"]
+    NOROLE --> SIGNREG["AuthService.createSession()"]
     SIGNREG --> TOKEN["Signed JWT: sub, email, roles, expiry"]
 
     ADMIN["Existing admin token"] --> ROLEPATCH["PATCH /api/v1/users/:id/roles"]
@@ -70,10 +70,10 @@ flowchart TD
 
 | Endpoint | Purpose | Authorization |
 |---|---|---|
-| `POST /api/v1/auth/register` | Creates an account and returns an access token. | Public, rate-limited; new accounts only receive `user`. |
+| `POST /api/v1/auth/register` | Creates a roleless account and returns a limited session. | Public, rate-limited; no application permissions until an admin assigns a role. |
 | `POST /api/v1/auth/login` | Verifies credentials and returns a fresh access token. | Public, rate-limited. |
 | `GET /api/v1/auth/me` | Returns the authenticated user's token claims. | Requires a valid bearer token. |
-| `PATCH /api/v1/users/:id/roles` | Assigns roles to another account. | Requires `admin`; self-role changes are rejected. |
+| `PATCH /api/v1/users/:id/roles` | Assigns roles or clears them to return an account to pending access. | Requires `admin`; self-role changes are rejected. |
 | `GET /api/v1/projects/:id` | Example of project-scoped access. | Requires a valid token and project owner/member access. |
 | `PATCH /api/v1/approvals/:id` | Example of a role-protected action. | Requires `reviewer` or `admin`, plus project access and no self-review. |
 
@@ -118,11 +118,11 @@ Content-Type: application/json
 {"email":"learner@example.com","password":"<12-to-128-character-password>"}
 ```
 
-Successful registration returns `201` with `{ success, data: { accessToken, user }, requestId }`. The response user contains only the public `id`, `email`, and `roles`; it does not contain `passwordHash`.
+Successful registration returns `201` with `{ success, data: { accessToken, user }, requestId }`. The response user has an empty `roles` array and contains no `passwordHash`; the frontend directs the user to the pending-access screen.
 
 **Check yourself:** What happens before the service is called if the email or password is invalid? Where does the invalid input become the standard API error?
 
-## Chunk 2: Follow default role assignment and persistence
+## Chunk 2: Follow pending-role persistence
 
 **Goal:** Understand why a public registration cannot create an administrator.
 
@@ -131,17 +131,17 @@ Read [`auth.service.ts`](../../backend/src/modules/auth/auth.service.ts), `AuthS
 1. Trims and lowercases the email.
 2. Checks for a duplicate account with `users.findByEmail()`.
 3. Hashes the password using `bcrypt.hash(password, 12)`.
-4. Calls `users.insertUser(...)` with `roles: ["user"]`.
-5. Creates a session and returns a safe public user plus the token.
+4. Calls `users.insertUser(...)` with `roles: []`.
+5. Creates a limited session; permission-protected routes remain unavailable until an administrator assigns a role.
 
 Then read:
 
 - [`user.repository.ts`](../../backend/src/modules/auth/user.repository.ts) - `UserRepository` defines `findByEmail`, `insertUser`, and `updateUserRoles`; it is the storage boundary, not the JSON implementation.
 - [`storage.ts`](../../backend/src/config/storage.ts) - `JsonFileStorage.insertUser()` generates the user ID, checks duplicate email again, and persists the record. `JsonFileStorage.findByEmail()` retrieves the stored record.
 
-`userRoles` in `user.repository.ts` defines the supported values: `user`, `reviewer`, `admin`, and `project_owner`.
+`userRoles` in `user.repository.ts` defines the supported application roles. An empty role array is the pending-assignment state, not an application role.
 
-**Check yourself:** Why is the password hash stored rather than the original password? Why does registration hard-code `["user"]` rather than accepting roles from the request?
+**Check yourself:** Why is the password hash stored rather than the original password? Why does registration accept no role input and leave role assignment to an administrator?
 
 ## Chunk 3: Follow the separate admin role-assignment path
 

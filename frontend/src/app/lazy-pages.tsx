@@ -21,6 +21,11 @@ export const GoogleCallbackPage = lazy(() =>
     default: module.GoogleCallbackPage,
   })),
 );
+export const PendingAccessPage = lazy(() =>
+  import("../pages/PendingAccessPage").then((module) => ({
+    default: module.PendingAccessPage,
+  })),
+);
 export const NotFoundPage = lazy(() =>
   import("../pages/NotFoundPage").then((module) => ({
     default: module.NotFoundPage,

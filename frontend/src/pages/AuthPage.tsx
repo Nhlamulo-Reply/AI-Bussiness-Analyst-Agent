@@ -268,7 +268,8 @@ export function AuthPage({ mode }: AuthPageProps) {
           </p>
           {isRegister ? (
             <p className="auth-page__role-note">
-              New accounts start with Business Analyst access.
+              New accounts require administrator review and role assignment
+              before workspace access is available.
             </p>
           ) : null}
         </div>
