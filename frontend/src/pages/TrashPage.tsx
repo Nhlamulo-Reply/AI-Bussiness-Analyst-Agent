@@ -72,11 +72,11 @@ export function TrashPage() {
   };
 
   return (
-    <section aria-labelledby="trash-title" className="trash-page">
+    <section aria-labelledby="bin-title" className="trash-page">
       <header className="page-heading">
         <div>
           <p className="eyebrow">WORKSPACE RECOVERY</p>
-          <h1 id="trash-title">Trash</h1>
+          <h1 id="bin-title">Bin</h1>
           <p className="page-heading__description">
             Restore items moved here within 30 days. Approval history and audit
             records are retained.
@@ -93,18 +93,18 @@ export function TrashPage() {
         <ErrorPanel
           message={getApiErrorPresentation(
             query.error,
-            "Trash couldn't be loaded.",
+            "Bin couldn't be loaded.",
           ).message}
-          title="Trash is unavailable"
+          title="Bin is unavailable"
         />
       ) : null}
       {query.isError && result ? (
         <ErrorPanel
           message={getApiErrorPresentation(
             query.error,
-            "Trash couldn't be refreshed.",
+            "Bin couldn't be refreshed.",
           ).message}
-          title="Couldn't refresh Trash"
+          title="Couldn't refresh Bin"
         />
       ) : null}
 
@@ -113,14 +113,14 @@ export function TrashPage() {
           <EmptyState
             description="Items you are authorized to remove will appear here. They remain recoverable for 30 days."
             icon={Trash2}
-            title="Trash is empty"
+            title="Bin is empty"
           />
         </Card>
       ) : null}
 
       {result && result.items.length > 0 ? (
         <Card as="section" className="trash-list-card">
-          <ul aria-label="Items in Trash" className="trash-list">
+          <ul aria-label="Items in Bin" className="trash-list">
             {result.items.map((item) => (
               <li className="trash-list__item" key={`${item.resourceType}-${item.id}`}>
                 <div className="trash-list__main">
@@ -186,7 +186,7 @@ export function TrashPage() {
       ) : null}
 
       {result && result.total > 0 ? (
-        <nav aria-label="Trash pages" className="project-pagination">
+        <nav aria-label="Bin pages" className="project-pagination">
           <span aria-live="polite">
             Page {result.page} of {totalPages} · {result.total} items
           </span>

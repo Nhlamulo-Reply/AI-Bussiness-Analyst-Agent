@@ -320,7 +320,7 @@ export function AdminAccessManagement() {
               className="admin-project-access-card"
               key={project.id}
             >
-              <div className="admin-section__heading">
+              <div className="admin-section__heading admin-project-access-card__row">
                 <div>
                   <h3>{project.name}</h3>
                   <p>

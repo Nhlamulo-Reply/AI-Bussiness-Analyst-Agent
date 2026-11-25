@@ -66,7 +66,7 @@ const workspaceLinks: Array<{
     permission: "project.read",
   },
   {
-    label: "Trash",
+    label: "Bin",
     to: "/app/trash",
     icon: Trash2,
     permission: ["project.read", "admin.trash"],
@@ -407,7 +407,7 @@ export function AppShell() {
 function getPageTitle(pathname: string) {
   if (pathname === "/app") return "Dashboard";
   if (pathname === "/app/projects") return "Projects";
-  if (pathname === "/app/trash") return "Trash";
+  if (pathname === "/app/trash") return "Bin";
   if (pathname.endsWith("/documents")) return "Documents";
   if (pathname.endsWith("/requirements")) return "Requirements";
   if (pathname.endsWith("/workflows")) return "AI workflows";

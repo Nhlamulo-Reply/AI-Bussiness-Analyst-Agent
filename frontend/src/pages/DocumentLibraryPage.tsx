@@ -692,7 +692,7 @@ export function DocumentLibraryPage() {
           <p className="document-library__footnote">
             Only the project owner can archive, restore, or move documents to
             the bin. Archived files are hidden from standard lists, workflows,
-            and exports while their contents remain stored. Trash items can be
+            and exports while their contents remain stored. Bin items can be
             restored for 30 days before an administrator may permanently delete
             them, subject to project-reference safeguards.
           </p>

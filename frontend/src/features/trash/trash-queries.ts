@@ -24,7 +24,7 @@ export function useTrash(page: number, limit: number) {
   return useQuery({
     queryKey: trashKeys.list(userId ?? "anonymous", page, limit),
     queryFn: ({ signal }) => {
-      if (!userId) throw new Error("Sign in to load Trash.");
+      if (!userId) throw new Error("Sign in to load the bin.");
       return listTrash(page, limit, signal);
     },
     enabled: Boolean(userId),

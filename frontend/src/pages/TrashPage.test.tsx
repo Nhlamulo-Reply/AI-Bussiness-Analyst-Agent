@@ -104,6 +104,9 @@ describe("TrashPage", () => {
     const userActions = userEvent.setup();
 
     expect(
+      await screen.findByRole("heading", { name: "Bin" }),
+    ).toBeInTheDocument();
+    expect(
       await screen.findByRole("heading", { name: "Customer onboarding" }),
     ).toBeInTheDocument();
     expect(

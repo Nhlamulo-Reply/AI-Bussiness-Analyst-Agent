@@ -3245,6 +3245,32 @@ p {
   padding: 18px;
 }
 
+.admin-project-access-card__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  justify-content: stretch;
+  gap: 14px;
+}
+
+.admin-project-access-card__row > div:first-child {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.admin-project-access-card__row > .button {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+}
+
+.admin-project-access-card__row > .move-to-bin-menu {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
 .admin-project-access-card h3,
 .admin-permission-card h3 {
   margin: 0;
