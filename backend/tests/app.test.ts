@@ -423,6 +423,212 @@ describe("backend foundation", () => {
     );
   });
 
+  it("moves an owner project to Trash, hides its resources, and restores it", async () => {
+    const owner = await registerUser("trash-project-owner@example.com");
+    const member = await registerUser("trash-project-member@example.com");
+    const project = await createProject(owner.token);
+    await request(app)
+      .patch(`/api/v1/projects/${project.id}/members`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ memberIds: [member.id] });
+    const upload = await request(app)
+      .post(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .attach("file", Buffer.from("keep this source"), {
+        filename: "trash-source.txt",
+        contentType: "text/plain",
+      });
+
+    const forbiddenTrash = await request(app)
+      .delete(`/api/v1/trash/project/${project.id}`)
+      .set("Authorization", `Bearer ${member.token}`);
+    const trashed = await request(app)
+      .delete(`/api/v1/trash/project/${project.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const inaccessible = await request(app)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${member.token}`);
+    const hiddenProjects = await request(app)
+      .get("/api/v1/projects")
+      .set("Authorization", `Bearer ${owner.token}`);
+    const trash = await request(app)
+      .get("/api/v1/trash")
+      .set("Authorization", `Bearer ${owner.token}`);
+    const restored = await request(app)
+      .patch(`/api/v1/trash/project/${project.id}/restore`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const visibleDocuments = await request(app)
+      .get(`/api/v1/projects/${project.id}/documents`)
+      .set("Authorization", `Bearer ${owner.token}`);
+
+    expect(upload.status).toBe(201);
+    expect(forbiddenTrash.status).toBe(403);
+    expect(trashed.status).toBe(200);
+    expect(trashed.body.data).toMatchObject({
+      resourceType: "project",
+      id: project.id,
+      label: "Test project",
+    });
+    expect(inaccessible.status).toBe(404);
+    expect(hiddenProjects.body.data.total).toBe(0);
+    expect(trash.body.data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: project.id,
+          canRestore: true,
+          canPurge: false,
+        }),
+      ]),
+    );
+    expect(restored.status).toBe(200);
+    expect(visibleDocuments.body.data).toHaveLength(1);
+    const events = await storage.listAuditEvents(1, 100);
+    expect(events.items.map((event) => event.action)).toEqual(
+      expect.arrayContaining(["project.trashed", "project.restored"]),
+    );
+  });
+
+  it("trashes only an author's draft requirements and artifacts without approval history", async () => {
+    const owner = await registerUser("trash-drafts@example.com");
+    const project = await createProject(owner.token);
+    const requirement = await request(app)
+      .post(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Draft requirement", type: "business" });
+    const artifact = await request(app)
+      .post(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ type: "story", title: "Draft story" });
+
+    const trashedRequirement = await request(app)
+      .delete(`/api/v1/trash/requirement/${requirement.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const trashedArtifact = await request(app)
+      .delete(`/api/v1/trash/artifact/${artifact.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const requirementList = await request(app)
+      .get(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const artifactList = await request(app)
+      .get(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${owner.token}`);
+
+    expect(trashedRequirement.status).toBe(200);
+    expect(trashedArtifact.status).toBe(200);
+    expect(requirementList.body.data.total).toBe(0);
+    expect(artifactList.body.data.total).toBe(0);
+
+    const restoredRequirement = await request(app)
+      .patch(
+        `/api/v1/trash/requirement/${requirement.body.data.id}/restore`,
+      )
+      .set("Authorization", `Bearer ${owner.token}`);
+    const restoredArtifact = await request(app)
+      .patch(`/api/v1/trash/artifact/${artifact.body.data.id}/restore`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    expect(restoredRequirement.status).toBe(200);
+    expect(restoredArtifact.status).toBe(200);
+  });
+
+  it("keeps submitted approval records out of Trash", async () => {
+    const owner = await registerUser("trash-approved-record@example.com");
+    const project = await createProject(owner.token);
+    const requirement = await request(app)
+      .post(`/api/v1/projects/${project.id}/requirements`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ title: "Submitted requirement", type: "business" });
+    const approval = await request(app)
+      .post("/api/v1/approvals")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({
+        projectId: project.id,
+        artifactType: "requirement",
+        artifactId: requirement.body.data.id,
+        comments: "Ready for review.",
+      });
+
+    const trashSubmittedRequirement = await request(app)
+      .delete(`/api/v1/trash/requirement/${requirement.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const trashApproval = await request(app)
+      .delete(`/api/v1/trash/approval/${approval.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const savedApproval = await storage.getApproval(approval.body.data.id);
+
+    expect(approval.status).toBe(201);
+    expect(trashSubmittedRequirement.status).toBe(403);
+    expect(trashApproval.status).toBe(404);
+    expect(savedApproval?.decision).toBe("pending");
+  });
+
+  it("restricts permanent purge to admins after 30 days and keeps audit labels", async () => {
+    const owner = await registerUser("trash-purge-owner@example.com");
+    const adminCandidate = await registerUser("trash-purge-admin@example.com");
+    await storage.updateUserRoles(adminCandidate.id, ["admin"]);
+    const adminToken = await login("trash-purge-admin@example.com");
+    const adminRecord = await storage.findById(adminCandidate.id);
+    if (!adminRecord) throw new Error("Trash test admin could not be found.");
+    const longLivedAdminToken = createTestToken(
+      adminRecord,
+      60 * 60 * 24 * 60,
+    );
+    const project = await createProject(owner.token);
+    const trashed = await request(app)
+      .delete(`/api/v1/trash/project/${project.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+
+    const earlyPurge = await request(app)
+      .delete(`/api/v1/trash/project/${project.id}/purge`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        confirmation: "Test project",
+        reason: "Owner requested permanent deletion.",
+      });
+    const forbiddenPurge = await request(app)
+      .delete(`/api/v1/trash/project/${project.id}/purge`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({
+        confirmation: "Test project",
+        reason: "Owner requested permanent deletion.",
+      });
+
+    expect(trashed.status).toBe(200);
+    expect(earlyPurge.status).toBe(409);
+    expect(forbiddenPurge.status).toBe(403);
+
+    const futureTime = Date.now() + 31 * 24 * 60 * 60 * 1000;
+    const dateNow = jest.spyOn(Date, "now").mockReturnValue(futureTime);
+    try {
+      const eligibleTrash = await request(app)
+        .get("/api/v1/trash")
+        .set("Authorization", `Bearer ${longLivedAdminToken}`);
+      const purged = await request(app)
+        .delete(`/api/v1/trash/project/${project.id}/purge`)
+        .set("Authorization", `Bearer ${longLivedAdminToken}`)
+        .send({
+          confirmation: "Test project",
+          reason: "Owner requested permanent deletion.",
+        });
+      const auditEvents = await storage.listAuditEventsWithLabels(1, 100);
+
+      expect(eligibleTrash.body.data.items[0].canPurge).toBe(true);
+      expect(purged.status).toBe(200);
+      expect(
+        auditEvents.items.find(
+          (event) =>
+            event.resourceId === project.id &&
+            event.action === "project.purged",
+        ),
+      ).toMatchObject({
+        resourceId: project.id,
+        resourceLabel: "Test project",
+        projectName: "Test project",
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it("allows exactly one token-authorized first-admin bootstrap and exposes admin audit data", async () => {
     const bootstrapToken = "one-time-bootstrap-token-with-at-least-32-chars";
     const bootstrapApp = createApp({
@@ -936,6 +1142,22 @@ describe("backend foundation", () => {
       )
       .set("Authorization", `Bearer ${deliveryLeadToken}`)
       .send({ comments: "Monitor this risk during rollout." });
+    const feedbackId = feedback.body.data.deliveryFeedback[0].id as string;
+    const forbiddenFeedbackWithdrawal = await request(app)
+      .patch(
+        `/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback/${feedbackId}/withdraw`,
+      )
+      .set("Authorization", `Bearer ${productOwnerToken}`);
+    const withdrawnFeedback = await request(app)
+      .patch(
+        `/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback/${feedbackId}/withdraw`,
+      )
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const repeatedFeedbackWithdrawal = await request(app)
+      .patch(
+        `/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback/${feedbackId}/withdraw`,
+      )
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
     const decidedDeliveryQueue = await request(app)
       .get(`/api/v1/projects/${project.id}/delivery-reviews?decision=approved`)
       .set("Authorization", `Bearer ${deliveryLeadToken}`);
@@ -993,6 +1215,9 @@ describe("backend foundation", () => {
     expect(feedback.status).toBe(200);
     expect(productOwnerDecision.status).toBe(200);
     expect(feedbackAfterDecision.status).toBe(200);
+    expect(forbiddenFeedbackWithdrawal.status).toBe(403);
+    expect(withdrawnFeedback.status).toBe(200);
+    expect(repeatedFeedbackWithdrawal.status).toBe(409);
     expect(forbiddenBusinessHistory.status).toBe(403);
     expect(decidedDeliveryQueue.body.data.items).toEqual([
       expect.objectContaining({
@@ -1012,7 +1237,9 @@ describe("backend foundation", () => {
           reviewerComments: "The risk is acceptable with mitigation.",
           deliveryFeedback: [
             expect.objectContaining({
+              id: feedbackId,
               comments: "Schedule a feasibility review.",
+              withdrawnByUserId: deliveryLead.id,
             }),
             expect.objectContaining({
               comments: "Monitor this risk during rollout.",
@@ -1553,7 +1780,10 @@ async function login(email: string): Promise<string> {
   return response.body.data.accessToken as string;
 }
 
-function createTestToken(user: UserRecord): string {
+function createTestToken(
+  user: UserRecord,
+  expiresInSeconds = config.jwtTtlSeconds,
+): string {
   return sign(
     {
       email: user.email,
@@ -1561,7 +1791,7 @@ function createTestToken(user: UserRecord): string {
       sessionVersion: user.sessionVersion ?? 0,
     },
     config.jwtSecret,
-    { subject: user.id, expiresIn: config.jwtTtlSeconds },
+    { subject: user.id, expiresIn: expiresInSeconds },
   );
 }
 

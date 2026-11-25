@@ -29,6 +29,9 @@ import {
   UserRoundPlus,
   UserRoundX,
 } from "lucide-react";
+import { TrashConfirmationDialog } from "../../components/ui/TrashConfirmationDialog";
+import { MoveToBinMenu } from "../../components/ui/MoveToBinMenu";
+import { useMoveToTrash } from "../trash/trash-queries";
 
 const projectAccessQueryKey = (
   userId: string,
@@ -52,6 +55,7 @@ export function AdminAccessManagement() {
     session?.user.roles,
     "admin.project_access",
   );
+  const canTrashProjects = hasPermission(session?.user.roles, "admin.trash");
   const [email, setEmail] = useState("");
   const [inviteRoles, setInviteRoles] = useState<UserRole[]>([
     "business_analyst",
@@ -60,6 +64,8 @@ export function AdminAccessManagement() {
   const [projectSearch, setProjectSearch] = useState("");
   const [projectPage, setProjectPage] = useState(1);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [trashTarget, setTrashTarget] = useState<ProjectAccess | null>(null);
+  const trashMutation = useMoveToTrash();
 
   const projectAccessQuery = useQuery({
     queryKey: projectAccessQueryKey(userId, projectPage, projectSearch),
@@ -335,6 +341,13 @@ export function AdminAccessManagement() {
                     ? "Managing members"
                     : "Manage members"}
                 </Button>
+                {canTrashProjects ? (
+                  <MoveToBinMenu
+                    disabled={trashMutation.isPending}
+                    itemLabel={`project ${project.name}`}
+                    onMoveToBin={() => setTrashTarget(project)}
+                  />
+                ) : null}
               </div>
             </Card>
           ))}
@@ -401,6 +414,41 @@ export function AdminAccessManagement() {
           ) : null}
         </section>
       ) : null}
+
+      <TrashConfirmationDialog
+        error={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The project couldn't be moved to the bin.",
+              ).message
+            : undefined
+        }
+        isPending={trashMutation.isPending}
+        itemLabel={trashTarget?.name ?? ""}
+        onConfirm={() => {
+          if (!trashTarget) return;
+          trashMutation.mutate(
+            { resourceType: "project", resourceId: trashTarget.id },
+            { onSuccess: () => setTrashTarget(null) },
+          );
+        }}
+        onOpenChange={(open) => {
+          if (!open && !trashMutation.isPending) {
+            setTrashTarget(null);
+            trashMutation.reset();
+          }
+        }}
+        open={Boolean(trashTarget)}
+        requestId={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The project couldn't be moved to the bin.",
+              ).requestId
+            : undefined
+        }
+      />
 
       <section
         aria-labelledby="admin-permission-map-title"

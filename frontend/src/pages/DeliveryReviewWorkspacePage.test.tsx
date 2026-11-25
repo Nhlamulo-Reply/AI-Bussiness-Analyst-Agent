@@ -61,11 +61,25 @@ const resource = {
 
 describe("DeliveryReviewWorkspacePage", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      value: function (this: HTMLDialogElement) {
+        this.open = true;
+      },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", {
+      configurable: true,
+      value: function (this: HTMLDialogElement) {
+        this.open = false;
+      },
+    });
     vi.stubEnv("VITE_API_BASE_URL", "/api/v1");
     setSession({ accessToken: "delivery-token", user });
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
     clearSession();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -76,6 +90,9 @@ describe("DeliveryReviewWorkspacePage", () => {
       reviewerUserId: string;
       comments: string;
       createdAt: string;
+      id?: string;
+      withdrawnAt?: string;
+      withdrawnByUserId?: string;
     }> = [];
     const fetchMock = vi
       .fn()
@@ -107,11 +124,24 @@ describe("DeliveryReviewWorkspacePage", () => {
             };
             deliveryFeedback = [
               {
+                id: "feedback-1",
                 reviewerUserId: user.id,
                 comments: body.comments,
                 createdAt: "2026-11-23T08:00:00.000Z",
               },
             ];
+            data = { ...approval, deliveryFeedback };
+          } else if (
+            url.endsWith(
+              "/approvals/approval-1/delivery-feedback/feedback-1/withdraw",
+            ) &&
+            method === "PATCH"
+          ) {
+            deliveryFeedback = deliveryFeedback.map((feedback) => ({
+              ...feedback,
+              withdrawnAt: "2026-11-23T08:30:00.000Z",
+              withdrawnByUserId: user.id,
+            }));
             data = { ...approval, deliveryFeedback };
           } else {
             throw new Error(`Unexpected request: ${method} ${url}`);
@@ -167,10 +197,21 @@ describe("DeliveryReviewWorkspacePage", () => {
     await waitFor(() => {
       expect(deliveryFeedback[0]?.comments).toBe("Add a rollback plan.");
       expect(screen.getByText(/Add a rollback plan\./)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/approvals/approval-1/delivery-feedback",
       expect.objectContaining({ method: "POST" }),
+    );
+    await userActions.click(screen.getByRole("button", { name: "Withdraw" }));
+    await userActions.click(
+      screen.getByRole("button", { name: "Withdraw feedback" }),
+    );
+    expect(await screen.findByText("Withdrawn")).toBeInTheDocument();
+    expect(deliveryFeedback[0]?.withdrawnByUserId).toBe(user.id);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/approvals/approval-1/delivery-feedback/feedback-1/withdraw",
+      expect.objectContaining({ method: "PATCH" }),
     );
     queryClient.clear();
   });

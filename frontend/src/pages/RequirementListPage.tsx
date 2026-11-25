@@ -16,6 +16,8 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { TrashConfirmationDialog } from "../components/ui/TrashConfirmationDialog";
+import { MoveToBinMenu } from "../components/ui/MoveToBinMenu";
 import { Badge } from "../components/ui/Badge";
 import { useAuth } from "../features/auth/useAuth";
 import { hasPermission } from "../features/auth/permissions";
@@ -24,6 +26,7 @@ import { useRequirements } from "../features/requirements/requirement-queries";
 import type { Requirement } from "../features/requirements/requirement.schemas";
 import { RequirementDetailsDialog } from "../features/requirements/RequirementDetailsDialog";
 import { getApiErrorPresentation } from "../lib/api-client";
+import { useMoveToTrash } from "../features/trash/trash-queries";
 
 const navigationStateSchema = z
   .object({
@@ -118,7 +121,9 @@ export function RequirementListPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [trashTarget, setTrashTarget] = useState<Requirement | null>(null);
   const requirementsQuery = useRequirements(projectId, page);
+  const trashMutation = useMoveToTrash();
   const result = requirementsQuery.data;
 
   const filteredRequirements = useMemo(() => {
@@ -194,16 +199,27 @@ export function RequirementListPage() {
     },
     {
       key: "actions",
-      header: "Details",
+      header: "Actions",
       render: (requirement) => (
-        <Button
-          onClick={() => setSelectedRequirementId(requirement.id)}
-          size="small"
-          type="button"
-          variant="secondary"
-        >
-          View
-        </Button>
+        <div className="artifact-table__actions">
+          <Button
+            onClick={() => setSelectedRequirementId(requirement.id)}
+            size="small"
+            type="button"
+            variant="secondary"
+          >
+            View
+          </Button>
+          {canPrepare &&
+          requirement.createdByUserId === session?.user.id &&
+          requirement.status === "draft" ? (
+            <MoveToBinMenu
+              disabled={trashMutation.isPending}
+              itemLabel={`requirement ${requirement.title}`}
+              onMoveToBin={() => setTrashTarget(requirement)}
+            />
+          ) : null}
+        </div>
       ),
     },
   ];
@@ -485,6 +501,45 @@ export function RequirementListPage() {
           requirement={selectedRequirement}
         />
       ) : null}
+      <TrashConfirmationDialog
+        error={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The requirement couldn't be moved to the bin.",
+              ).message
+            : undefined
+        }
+        isPending={trashMutation.isPending}
+        itemLabel={trashTarget?.title ?? ""}
+        onConfirm={() => {
+          if (!trashTarget) return;
+          trashMutation.mutate(
+            { resourceType: "requirement", resourceId: trashTarget.id },
+            {
+              onSuccess: () => {
+                setSelectedRequirementId(null);
+                setTrashTarget(null);
+              },
+            },
+          );
+        }}
+        onOpenChange={(open) => {
+          if (!open && !trashMutation.isPending) {
+            setTrashTarget(null);
+            trashMutation.reset();
+          }
+        }}
+        open={Boolean(trashTarget)}
+        requestId={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The requirement couldn't be moved to the bin.",
+              ).requestId
+            : undefined
+        }
+      />
     </section>
   );
 }

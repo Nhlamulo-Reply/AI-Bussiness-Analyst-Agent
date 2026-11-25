@@ -16,6 +16,7 @@ import {
   getArtifactApprovalHistory,
   listProjectDeliveryReviews,
   listProjectApprovals,
+  withdrawDeliveryFeedback,
 } from "./approval-api";
 import type {
   ApprovalArtifactType,
@@ -281,6 +282,37 @@ export function useAddDeliveryFeedback(projectId: string) {
       approvalId: string;
       comments: string;
     }) => addDeliveryFeedback(approvalId, comments),
+    onSuccess: async (approval) => {
+      if (!userId) return;
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: approvalKeys.deliveryReviews(userId, projectId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: approvalKeys.detail(userId, approval.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: approvalKeys.histories(userId),
+        }),
+      ]);
+    },
+    retry: false,
+  });
+}
+
+export function useWithdrawDeliveryFeedback(projectId: string) {
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const userId = session?.user.id;
+
+  return useMutation({
+    mutationFn: ({
+      approvalId,
+      feedbackId,
+    }: {
+      approvalId: string;
+      feedbackId: string;
+    }) => withdrawDeliveryFeedback(approvalId, feedbackId),
     onSuccess: async (approval) => {
       if (!userId) return;
       await Promise.all([

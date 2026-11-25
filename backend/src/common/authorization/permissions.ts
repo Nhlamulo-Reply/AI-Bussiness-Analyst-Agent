@@ -13,7 +13,9 @@ export type Permission =
   | "admin.users"
   | "admin.project_access"
   | "admin.templates"
-  | "admin.audit";
+  | "admin.audit"
+  | "admin.trash"
+  | "admin.trash.purge";
 
 const permissionMap: Record<UserRole, Permission[]> = {
   business_analyst: [
@@ -40,6 +42,8 @@ const permissionMap: Record<UserRole, Permission[]> = {
     "admin.project_access",
     "admin.templates",
     "admin.audit",
+    "admin.trash",
+    "admin.trash.purge",
   ],
 };
 

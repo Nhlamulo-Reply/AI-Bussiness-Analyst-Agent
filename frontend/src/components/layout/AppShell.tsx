@@ -15,6 +15,7 @@ import {
   Settings,
   Sparkles,
   Sun,
+  Trash2,
   UserRound,
   Workflow,
   X,
@@ -63,6 +64,12 @@ const workspaceLinks: Array<{
     to: "/app/projects",
     icon: BriefcaseBusiness,
     permission: "project.read",
+  },
+  {
+    label: "Trash",
+    to: "/app/trash",
+    icon: Trash2,
+    permission: ["project.read", "admin.trash"],
   },
 ];
 
@@ -400,6 +407,7 @@ export function AppShell() {
 function getPageTitle(pathname: string) {
   if (pathname === "/app") return "Dashboard";
   if (pathname === "/app/projects") return "Projects";
+  if (pathname === "/app/trash") return "Trash";
   if (pathname.endsWith("/documents")) return "Documents";
   if (pathname.endsWith("/requirements")) return "Requirements";
   if (pathname.endsWith("/workflows")) return "AI workflows";

@@ -25,6 +25,7 @@ import { createUserRouter } from "./modules/users/user.routes";
 import { createAdminRouter } from "./modules/users/admin.routes";
 import { createTemplateRouter } from "./modules/users/template.routes";
 import { createArtifactRouter } from "./modules/artifacts/artifact.routes";
+import { createTrashRouter } from "./modules/trash/trash.routes";
 import { openApiDocument } from "./docs/openapi";
 import { WorkflowService } from "./workflows/workflow-service";
 import { createStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
@@ -152,6 +153,10 @@ export function createApp(dependencies: AppDependencies): Express {
   app.use(
     "/api/v1/artifacts",
     createArtifactRouter(dependencies.storage, dependencies.config.jwtSecret),
+  );
+  app.use(
+    "/api/v1/trash",
+    createTrashRouter(dependencies.storage, dependencies.config.jwtSecret),
   );
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.use(notFoundHandler);

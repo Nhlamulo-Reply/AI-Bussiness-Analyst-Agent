@@ -13,7 +13,9 @@ export type Permission =
   | "admin.users"
   | "admin.project_access"
   | "admin.templates"
-  | "admin.audit";
+  | "admin.audit"
+  | "admin.trash"
+  | "admin.trash.purge";
 
 export const rolePermissions: Record<UserRole, readonly Permission[]> = {
   business_analyst: [
@@ -36,6 +38,8 @@ export const rolePermissions: Record<UserRole, readonly Permission[]> = {
     "admin.project_access",
     "admin.templates",
     "admin.audit",
+    "admin.trash",
+    "admin.trash.purge",
   ],
 };
 

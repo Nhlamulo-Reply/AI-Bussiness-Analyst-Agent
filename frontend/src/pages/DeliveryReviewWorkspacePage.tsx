@@ -9,6 +9,7 @@ import {
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
@@ -20,6 +21,7 @@ import {
   approvalPageSize,
   useAddDeliveryFeedback,
   useProjectDeliveryReviews,
+  useWithdrawDeliveryFeedback,
 } from "../features/approvals/approval-queries";
 import { getApprovalSubmitterComments } from "../features/approvals/approval.schemas";
 import { useProject } from "../features/projects/project-queries";
@@ -56,8 +58,13 @@ export function DeliveryReviewWorkspacePage() {
     approvalId: string;
   } | null>(null);
   const [comments, setComments] = useState("");
+  const [feedbackToWithdraw, setFeedbackToWithdraw] = useState<{
+    approvalId: string;
+    feedbackId: string;
+  } | null>(null);
   const reviewsQuery = useProjectDeliveryReviews(projectId, page, canReview);
   const feedbackMutation = useAddDeliveryFeedback(projectId);
+  const withdrawMutation = useWithdrawDeliveryFeedback(projectId);
   const selectedApprovalId =
     selection?.projectId === projectId ? selection.approvalId : "";
   const selectedReview = reviewsQuery.data?.items.find(
@@ -78,6 +85,12 @@ export function DeliveryReviewWorkspacePage() {
     ? getApiErrorPresentation(
         feedbackMutation.error,
         "Your delivery feedback could not be saved.",
+      )
+    : undefined;
+  const withdrawError = withdrawMutation.error
+    ? getApiErrorPresentation(
+        withdrawMutation.error,
+        "Your delivery feedback could not be withdrawn.",
       )
     : undefined;
 
@@ -155,6 +168,8 @@ export function DeliveryReviewWorkspacePage() {
                         setSelection({ projectId, approvalId: approval.id });
                         setComments("");
                         feedbackMutation.reset();
+                        setFeedbackToWithdraw(null);
+                        withdrawMutation.reset();
                       }}
                       type="button"
                     >
@@ -290,15 +305,43 @@ export function DeliveryReviewWorkspacePage() {
                         {selectedReview.approval.deliveryFeedback.map(
                           (feedback) => (
                             <li
-                              key={`${feedback.reviewerUserId}-${feedback.createdAt}`}
+                              key={
+                                feedback.id ??
+                                `${feedback.reviewerUserId}-${feedback.createdAt}`
+                              }
                             >
-                              <strong>{feedback.reviewerUserId}</strong>:{" "}
-                              {feedback.comments}{" "}
-                              <time dateTime={feedback.createdAt}>
-                                {reviewDateFormatter.format(
-                                  new Date(feedback.createdAt),
-                                )}
-                              </time>
+                              <div>
+                                <strong>{feedback.reviewerUserId}</strong>:{" "}
+                                {feedback.comments}{" "}
+                                <time dateTime={feedback.createdAt}>
+                                  {reviewDateFormatter.format(
+                                    new Date(feedback.createdAt),
+                                  )}
+                                </time>
+                                {feedback.withdrawnAt ? (
+                                  <Badge tone="neutral">Withdrawn</Badge>
+                                ) : null}
+                              </div>
+                              {feedback.id &&
+                              feedback.reviewerUserId === session?.user.id &&
+                              !feedback.withdrawnAt ? (
+                                <Button
+                                  disabled={withdrawMutation.isPending}
+                                  onClick={() => {
+                                    const feedbackId = feedback.id;
+                                    if (!feedbackId) return;
+                                    setFeedbackToWithdraw({
+                                      approvalId: selectedReview.approval.id,
+                                      feedbackId,
+                                    });
+                                  }}
+                                  size="small"
+                                  type="button"
+                                  variant="danger"
+                                >
+                                  Withdraw
+                                </Button>
+                              ) : null}
                             </li>
                           ),
                         )}
@@ -353,12 +396,68 @@ export function DeliveryReviewWorkspacePage() {
                       title="Feedback not saved"
                     />
                   ) : null}
+                  {withdrawError ? (
+                    <ErrorPanel
+                      message={withdrawError.message}
+                      requestId={withdrawError.requestId}
+                      title="Feedback not withdrawn"
+                    />
+                  ) : null}
                 </div>
               )}
             </Card>
           </div>
         </>
       )}
+      <Dialog
+        description="The comment remains in review history and is marked as withdrawn. You can add corrected feedback afterward."
+        onOpenChange={(open) => {
+          if (!open && !withdrawMutation.isPending) {
+            setFeedbackToWithdraw(null);
+            withdrawMutation.reset();
+          }
+        }}
+        open={Boolean(feedbackToWithdraw)}
+        title="Withdraw your delivery feedback?"
+      >
+        {feedbackToWithdraw ? (
+          <div className="trash-confirmation-dialog">
+            <p>
+              Withdraw this feedback? The original comment will remain in the
+              history as withdrawn.
+            </p>
+            {withdrawError ? (
+              <ErrorPanel
+                message={withdrawError.message}
+                requestId={withdrawError.requestId}
+                title="Feedback not withdrawn"
+              />
+            ) : null}
+            <div className="dialog__actions">
+              <Button
+                disabled={withdrawMutation.isPending}
+                onClick={() => setFeedbackToWithdraw(null)}
+                type="button"
+                variant="secondary"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={withdrawMutation.isPending}
+                onClick={() =>
+                  withdrawMutation.mutate(feedbackToWithdraw, {
+                    onSuccess: () => setFeedbackToWithdraw(null),
+                  })
+                }
+                type="button"
+                variant="danger"
+              >
+                {withdrawMutation.isPending ? "Withdrawing" : "Withdraw feedback"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
     </section>
   );
 }
