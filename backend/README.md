@@ -1,6 +1,6 @@
 # AI Business Analyst Agent Backend
 
-Node.js/TypeScript API with temporary JSON-file storage and asynchronous LangGraph workflows using structured outputs from OpenAI or Groq. MongoDB remains a later storage target.
+Node.js/TypeScript API with MongoDB persistence and asynchronous LangGraph workflows using structured outputs from OpenAI or Groq.
 
 ## Requirements
 
@@ -16,7 +16,16 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Set `JWT_SECRET` in `.env` to a private random value of at least 32 characters. `JSON_STORAGE_PATH` defaults to `./data/ai-business-analyst.json`, relative to the backend working directory. Keep `.env` private and never commit credentials or stored user data.
+Set `JWT_SECRET` in `.env` to a private random value of at least 32 characters. `MONGODB_URI` defaults to `mongodb://127.0.0.1:27017`, and `MONGODB_DATABASE` defaults to `ai_business_analyst_agent`. For MongoDB Atlas, replace the URI with the connection string from your Atlas cluster and keep the password private. If your configured DNS resolver blocks Atlas SRV lookups, optionally set `MONGODB_DNS_SERVERS=1.1.1.1,8.8.8.8`; this changes DNS servers for the backend Node.js process only. The backend creates its collections and indexes on startup. If MongoDB is empty and the legacy file at `JSON_STORAGE_PATH` exists, its records are imported once; the JSON file is not used after that import. Keep `.env` private and never commit credentials or stored user data.
+
+### Google sign-in setup
+
+Create a Google OAuth 2.0 **Web application** client and set these values exactly:
+
+- Authorized JavaScript origin: `http://localhost:3000`
+- Authorized redirect URI: `http://localhost:3000/api/v1/auth/google/callback`
+
+Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `backend/.env`. The client secret must be the OAuth client secret from Google, not the client ID. Keep the secret private and restart the backend after changing `.env`.
 
 For a fresh installation, optionally set `ADMIN_BOOTSTRAP_TOKEN` to a private random value of at least 32 characters. Register the intended administrator as a roleless user, sign in, and call `POST /api/v1/users/bootstrap-admin` with the token and that user's bearer token. Only one active administrator can be claimed, even when requests race. Bootstrap assigns the exclusive `admin` role to the registering account. The token is disabled when the environment variable is absent; remove it from the environment after bootstrap. Sign in again after bootstrap or role changes to receive updated claims. Admins can invite users with one-time setup links, reversibly deactivate/reactivate accounts, assign canonical roles, manage templates and project membership metadata, and review/export audit events. Password hashes, session versions, Google subjects, and project contents are not returned by admin listing endpoints.
 
@@ -39,7 +48,7 @@ npm run build
 npm start
 ```
 
-The server validates its environment, creates the JSON storage file if it does not exist, and validates the file before listening. Malformed or inaccessible storage causes startup to fail with a non-zero exit code. File writes use a temporary file and atomic rename; this interim store is for a single backend process.
+The server validates its environment and establishes a MongoDB connection before listening. An unavailable database or invalid stored records causes startup to fail with a non-zero exit code. The current repository layer keeps a process-local snapshot, so run one backend instance at a time; multi-instance coordination is not supported.
 
 ## Container
 
@@ -47,17 +56,16 @@ Build and run from the `backend` directory. Docker Desktop or Docker Engine is r
 
 ```powershell
 docker build -t ai-business-analyst-agent-backend:local .
-docker volume create ai-business-analyst-data
 docker run --rm --name ai-business-analyst-agent-backend `
   -p 3000:3000 `
-  --mount type=volume,source=ai-business-analyst-data,target=/data `
   --env JWT_SECRET `
+  --env MONGODB_URI `
   ai-business-analyst-agent-backend:local
 ```
 
-Set `JWT_SECRET` in the shell or inject it from a secret manager before running the container. To enable AI workflows, configure the selected provider's key (`OPENAI_API_KEY` or `GROQ_API_KEY`) and `LLM_PROVIDER` through the same secret mechanism. Optional fallbacks use `GEMINI_API_KEY` and `INCEPTION_API_KEY`. The image does not copy `.env` files. The process runs as the non-root `node` user, stores its JSON file under `/data`, and exposes port `3000`. A container health check calls `/api/v1/health/ready`; use `/api/v1/health/live` for process liveness.
+Set `JWT_SECRET` and `MONGODB_URI` in the shell or inject them from a secret manager before running the container. To enable AI workflows, configure the selected provider's key (`OPENAI_API_KEY` or `GROQ_API_KEY`) and `LLM_PROVIDER` through the same secret mechanism. Optional fallbacks use `GEMINI_API_KEY` and `INCEPTION_API_KEY`. The image does not copy `.env` files. The process runs as the non-root `node` user and exposes port `3000`. A container health check calls `/api/v1/health/ready`; use `/api/v1/health/live` for process liveness.
 
-Keep the named `/data` volume across container replacement. This JSON-backed service is single-process and supports one replica only; it is not production-ready for horizontally scaled or ephemeral-storage deployments. Do not mount the same JSON file into multiple containers.
+The MongoDB connection must be reachable from the container. When using MongoDB Atlas, allow the deployment's outbound IP and use TLS in the connection string. The service currently supports one backend process because repository state is cached in memory; do not scale it horizontally.
 
 ## Smoke-test example
 
@@ -68,7 +76,7 @@ GET /api/v1/health/ready
 HTTP/1.1 200 OK
 Content-Type: application/json
 
-{"success":true,"data":{"status":"ready","storage":"json"},"requestId":"c471050c-76e9-4323-9942-3c2f7a0da9b4"}
+{"success":true,"data":{"status":"ready","storage":"mongodb"},"requestId":"c471050c-76e9-4323-9942-3c2f7a0da9b4"}
 ```
 
 In PowerShell, check a running local or containerized instance with:
@@ -80,8 +88,8 @@ Invoke-RestMethod http://localhost:3000/api/v1/health/ready
 ## Endpoints
 
 - `GET /api/v1/health/live` — process liveness.
-- `GET /api/v1/health/ready` — readiness, including a JSON file accessibility check.
 - `POST /api/v1/auth/register` — create an account with no assigned roles. The account can sign in but has no application permissions until an administrator assigns a role (email and password of 12–128 characters).
+- `GET /api/v1/health/ready` — readiness, including a MongoDB ping.
 - `POST /api/v1/auth/login` — return a short-lived JWT access token.
 - `GET /api/v1/auth/me` — return the authenticated user; requires `Authorization: Bearer <token>`.
 - `POST /api/v1/projects`, `GET /api/v1/projects`, `GET /api/v1/projects/:id` — create, list, and read accessible projects. Creation accepts a project brief with a business objective, in/out-of-scope descriptions, stakeholders, constraints, and desired outputs; these structured fields are included in project-context-only workflows.
@@ -107,9 +115,9 @@ Invoke-RestMethod http://localhost:3000/api/v1/health/ready
 - `GET /api/v1/executions/:id` — poll execution status and retrieve its result.
 - `GET /api-docs` — Swagger UI for implemented APIs.
 
-Self-registered email and Google accounts start with no roles and remain without application permissions until an administrator assigns one. The frontend displays an account-review screen while no roles are assigned. Role changes invalidate existing tokens, so users must sign in again after assignment. A first administrator can still be bootstrapped by registering, signing in, and calling `POST /api/v1/users/bootstrap-admin` with the configured one-time token. An administrator invitation creates an inactive account with the selected canonical role; its single-use, expiring setup link activates the account only after the invitee sets a password. The `admin` role is mutually exclusive with project roles. Authenticated requests validate the current account and role state in JSON storage; account deactivation revokes sessions immediately. Business Analysts and Product Owners can read business requirements and artifacts; Business Analysts and Delivery Leads can read delivery artifacts. Project content access requires the relevant permission and project ownership or active membership. Administrators do not receive project-content access; their dedicated project-access API is metadata-only. LangGraph workflows create drafts and cannot make approval decisions. Workflow processing runs in-process, is limited to 10 submissions per 15 minutes per client IP, and is not resumable after a process crash; a durable queue/checkpoint store is future work.
+Self-registered email and Google accounts start with no roles and remain without application permissions until an administrator assigns one. The frontend displays an account-review screen while no roles are assigned. Role changes invalidate existing tokens, so users must sign in again after assignment. A first administrator can still be bootstrapped by registering, signing in, and calling `POST /api/v1/users/bootstrap-admin` with the configured one-time token. An administrator invitation creates an inactive account with the selected canonical role; its single-use, expiring setup link activates the account only after the invitee sets a password. The `admin` role is mutually exclusive with project roles. Authenticated requests validate the current account and role state in MongoDB; account deactivation revokes sessions immediately. Business Analysts and Product Owners can read business requirements and artifacts; Business Analysts and Delivery Leads can read delivery artifacts. Project content access requires the relevant permission and project ownership or active membership. Administrators do not receive project-content access; their dedicated project-access API is metadata-only. LangGraph workflows create drafts and cannot make approval decisions. Workflow processing runs in-process, is limited to 10 submissions per 15 minutes per client IP, and is not resumable after a process crash; a durable queue/checkpoint store is future work.
 
-Uploaded file content is stored as base64 in the local JSON file and is excluded from API metadata responses and exports. The 5 MiB per-file limit does not make JSON storage suitable for production or large document collections.
+Uploaded file content is stored as base64 in MongoDB and is excluded from API metadata responses and exports. The MongoDB adapter stores each record in its own document to stay within MongoDB's per-document size limit.
 
 ## Verify
 
@@ -118,7 +126,7 @@ npm run typecheck
 npm test
 ```
 
-Tests for environment parsing, JSON persistence, the HTTP/auth APIs, and workflow execution use isolated temporary files and a fake provider; tests do not call OpenAI. MongoDB integration is intentionally deferred.
+Tests for environment parsing, the legacy JSON reader, the HTTP/auth APIs, and workflow execution use isolated temporary files and a fake provider; tests do not call OpenAI or require a MongoDB server. Run the backend against a local MongoDB instance or Atlas to verify database connectivity and persistence in your environment.
 
 ### Offline workflow evaluation evidence
 
@@ -132,10 +140,10 @@ Tests for environment parsing, JSON persistence, the HTTP/auth APIs, and workflo
 
 These are deterministic fixture checks, not a live OpenAI model evaluation or a quality score; model output remains a draft until human approval. Workflow timeout, rate-limit, and connection failures are simulated without network calls.
 
-Workflow submissions have no idempotency key, so retrying a submission may enqueue and bill for another run. MongoDB repository tests are not applicable until the deferred MongoDB adapter is approved and implemented.
+Workflow submissions have no idempotency key, so retrying a submission may enqueue and bill for another run.
 
 ### Operations and future persistence
 
-The service writes Pino JSON logs to stdout/stderr; collect them through the hosting platform and avoid enabling request-body logging. Terminate TLS at a trusted ingress or load balancer, expose only the API port, and inject secrets through the platform's secret manager. Back up the JSON file only from a consistent copy or volume snapshot, encrypt backups, restrict access (the file contains password hashes and uploaded document content), and test restoration. The current storage does not provide point-in-time recovery or multi-replica coordination.
+The service writes Pino JSON logs to stdout/stderr; collect them through the hosting platform and avoid enabling request-body logging. Terminate TLS at a trusted ingress or load balancer, expose only the API port, and inject secrets through the platform's secret manager. Use least-privilege MongoDB credentials, encrypted backups, and test restoration. The current storage does not support multiple backend instances or distributed coordination.
 
-MongoDB is not part of this image and no MongoDB service is needed today. Before adopting it, implement and approve the MongoDB adapter/migration, apply the indexes in `docs/backend/Database-Design.md`, use TLS and least-privilege credentials, enable automated encrypted backups with point-in-time recovery where available, and perform restore drills. Deployment to a specific cloud platform remains a separate decision.
+MongoDB indexes are created by the backend on startup. Existing JSON records are imported only when all MongoDB collections are empty; the source JSON file is retained as a backup and is never modified by MongoDB writes. After verifying the imported data, archive the JSON file securely because it contains password hashes and uploaded document content. If MongoDB already contains records, no automatic import is attempted.

@@ -5,10 +5,12 @@ describe("loadConfig", () => {
     JWT_SECRET: "a-secure-test-secret-with-at-least-32-characters",
   };
 
-  it("loads defaults while requiring a JSON storage path and strong JWT secret", () => {
+  it("loads defaults while requiring a strong JWT secret", () => {
     expect(loadConfig(validEnvironment)).toMatchObject({
       environment: "development",
       port: 3000,
+      mongoUri: expect.any(String),
+      mongoDatabase: expect.any(String),
       jsonStoragePath: "./data/ai-business-analyst.json",
       jwtTtlSeconds: 900,
       llmProvider: "openai",
@@ -48,6 +50,34 @@ describe("loadConfig", () => {
       inceptionApiKey: "test-inception-key",
       inceptionModel: "inception-fallback-model",
     });
+  });
+
+  it("loads a configured MongoDB URI and database name", () => {
+    expect(
+      loadConfig({
+        ...validEnvironment,
+        MONGODB_URI: "mongodb+srv://cluster.example.mongodb.net",
+        MONGODB_DATABASE: "business_analyst",
+      }),
+    ).toMatchObject({
+      mongoUri: "mongodb+srv://cluster.example.mongodb.net",
+      mongoDatabase: "business_analyst",
+    });
+  });
+
+  it("loads valid MongoDB DNS server overrides and rejects invalid addresses", () => {
+    expect(
+      loadConfig({
+        ...validEnvironment,
+        MONGODB_DNS_SERVERS: "1.1.1.1, 8.8.8.8",
+      }).mongoDnsServers,
+    ).toEqual(["1.1.1.1", "8.8.8.8"]);
+    expect(() =>
+      loadConfig({
+        ...validEnvironment,
+        MONGODB_DNS_SERVERS: "not-an-ip",
+      }),
+    ).toThrow("MONGODB_DNS_SERVERS");
   });
 
   it("accepts a sufficiently long optional first-admin bootstrap token", () => {

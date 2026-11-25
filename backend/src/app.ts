@@ -84,7 +84,10 @@ export function createApp(dependencies: AppDependencies): Express {
         await dependencies.storage.ping();
         response.status(200).json({
           success: true,
-          data: { status: "ready", storage: "json" },
+          data: {
+            status: "ready",
+            storage: dependencies.storage.storageType,
+          },
           requestId: request.id,
         });
       } catch {

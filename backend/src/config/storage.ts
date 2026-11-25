@@ -9,8 +9,15 @@ import {
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
+import { setServers } from "node:dns";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
+import {
+  MongoClient,
+  type Collection,
+  type Db,
+  type Document,
+} from "mongodb";
 import type { AppConfig } from "./env";
 import {
   DuplicateUserError,
@@ -284,6 +291,7 @@ export class ArtifactReviewConflictError extends Error {
 }
 
 export interface Storage extends ProjectRepository {
+  readonly storageType: "json" | "mongodb";
   connect(): Promise<void>;
   ping(): Promise<void>;
   close(): Promise<void>;
@@ -541,9 +549,10 @@ export interface Storage extends ProjectRepository {
 export class JsonFileStorage
   implements Storage, UserRepository, ProjectRepository
 {
+  readonly storageType: "json" | "mongodb" = "json";
   private readonly filePath: string;
-  private state?: StorageFile;
-  private writeQueue: Promise<void> = Promise.resolve();
+  protected state?: StorageFile;
+  protected writeQueue: Promise<void> = Promise.resolve();
 
   constructor(config: Pick<AppConfig, "jsonStoragePath">) {
     this.filePath = resolve(config.jsonStoragePath);
@@ -570,58 +579,7 @@ export class JsonFileStorage
       return;
     }
 
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(contents);
-    } catch {
-      throw new Error(
-        `JSON storage file contains invalid JSON: ${this.filePath}`,
-      );
-    }
-
-    const parsedStorage = storageFileSchema.safeParse(parsedJson);
-    if (parsedStorage.success) {
-      this.state = parsedStorage.data;
-      return;
-    }
-
-    const legacyStorage = legacyStorageFileSchema.safeParse(parsedJson);
-    if (!legacyStorage.success) {
-      throw new Error(
-        `JSON storage file has an unsupported or invalid structure: ${this.filePath}`,
-      );
-    }
-
-    const migratedState = createEmptyStorage();
-    migratedState.users = legacyStorage.data.users;
-    migratedState.projects = legacyStorage.data.projects.map((project) => ({
-      id: project.id,
-      name:
-        typeof project.name === "string"
-          ? project.name
-          : `Project ${project.id}`,
-      description:
-        typeof project.description === "string" ? project.description : "",
-      businessObjective: "",
-      inScope: "",
-      outOfScope: "",
-      stakeholders: [],
-      constraints: [],
-      desiredOutputs: [],
-      ownerUserId: project.ownerUserId,
-      members: project.members,
-      status: "active",
-      createdAt:
-        typeof project.createdAt === "string"
-          ? project.createdAt
-          : new Date(0).toISOString(),
-      updatedAt:
-        typeof project.updatedAt === "string"
-          ? project.updatedAt
-          : new Date(0).toISOString(),
-    }));
-    await this.persist(migratedState);
-    this.state = migratedState;
+    this.state = parseStorageFile(contents, this.filePath);
   }
 
   async ping(): Promise<void> {
@@ -2523,7 +2481,7 @@ export class JsonFileStorage
     return operation;
   }
 
-  private async persist(state: StorageFile): Promise<void> {
+  protected async persist(state: StorageFile): Promise<void> {
     const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
       encoding: "utf8",
@@ -2539,11 +2497,242 @@ export class JsonFileStorage
     }
   }
 
-  private getState(): StorageFile {
+  protected getState(): StorageFile {
     if (!this.state) {
-      throw new Error("JSON storage is not connected");
+      throw new Error("Storage is not connected");
     }
     return this.state;
+  }
+
+  static async readExisting(
+    filePath: string,
+  ): Promise<StorageFile | undefined> {
+    let contents: string;
+    try {
+      contents = await readFile(filePath, "utf8");
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+    return parseStorageFile(contents, filePath);
+  }
+}
+
+const storageCollectionNames = [
+  "users",
+  "projects",
+  "documents",
+  "requirements",
+  "artifacts",
+  "templates",
+  "approvals",
+  "auditEvents",
+  "versions",
+  "executions",
+  "passwordResetTokens",
+  "oauthStates",
+] as const satisfies readonly (keyof StorageFile)[];
+
+type StorageCollectionName = (typeof storageCollectionNames)[number];
+type StorageRecord = { id: string };
+
+export class MongoStorage extends JsonFileStorage {
+  override readonly storageType = "mongodb" as const;
+  private readonly client: MongoClient;
+  private readonly databaseName: string;
+  private readonly legacyFilePath: string;
+  private database?: Db;
+  private metadata?: Collection<Document>;
+  private collections = new Map<
+    StorageCollectionName,
+    Collection<Document>
+  >();
+
+  constructor(
+    config: Pick<
+      AppConfig,
+      "jsonStoragePath" | "mongoUri" | "mongoDatabase" | "mongoDnsServers"
+    >,
+  ) {
+    super(config);
+    if (config.mongoDnsServers?.length) {
+      setServers(config.mongoDnsServers);
+    }
+    this.client = new MongoClient(config.mongoUri);
+    this.databaseName = config.mongoDatabase;
+    this.legacyFilePath = resolve(config.jsonStoragePath);
+  }
+
+  override async connect(): Promise<void> {
+    if (this.state) {
+      throw new Error("MongoDB storage is already connected");
+    }
+
+    try {
+      await this.client.connect();
+      this.database = this.client.db(this.databaseName);
+      this.metadata = this.database.collection("storageMetadata");
+      await this.metadata.createIndex({ id: 1 }, { unique: true });
+      for (const name of storageCollectionNames) {
+        this.collections.set(name, this.database.collection(name));
+      }
+      await this.createIndexes();
+
+      const initialization = await this.metadata.findOne({ id: "storage" });
+      if (initialization?.initialized === false) {
+        throw new Error(
+          "MongoDB storage initialization was interrupted; inspect the database before restarting",
+        );
+      }
+
+      const collections = await Promise.all(
+        storageCollectionNames.map(async (name) => {
+          const records = await this.getCollection(name)
+            .find({})
+            .toArray();
+          return [name, records.map(fromMongoDocument)] as const;
+        }),
+      );
+      const loaded = createEmptyStorage();
+      for (const [name, records] of collections) {
+        Object.assign(loaded, { [name]: records });
+      }
+
+      const parsed = storageFileSchema.safeParse(loaded);
+      if (!parsed.success) {
+        throw new Error("MongoDB storage contains an invalid data structure");
+      }
+
+      const recordCount = collections.reduce(
+        (count, [, records]) => count + records.length,
+        0,
+      );
+      if (recordCount === 0) {
+        const legacyState = await JsonFileStorage.readExisting(
+          this.legacyFilePath,
+        );
+        if (legacyState) {
+          await this.metadata.replaceOne(
+            { id: "storage" },
+            { id: "storage", initialized: false },
+            { upsert: true },
+          );
+          await this.persist(legacyState);
+          await this.metadata.replaceOne(
+            { id: "storage" },
+            { id: "storage", initialized: true },
+            { upsert: true },
+          );
+          this.state = legacyState;
+          return;
+        }
+      }
+
+      await this.metadata.replaceOne(
+        { id: "storage" },
+        { id: "storage", initialized: true },
+        { upsert: true },
+      );
+      this.state = parsed.data;
+    } catch (error) {
+      await this.client.close();
+      this.database = undefined;
+      this.collections.clear();
+      throw error;
+    }
+  }
+
+  override async ping(): Promise<void> {
+    this.getState();
+    if (!this.database) {
+      throw new Error("MongoDB storage is not connected");
+    }
+    await this.database.command({ ping: 1 });
+  }
+
+  override async close(): Promise<void> {
+    await this.writeQueue;
+    this.state = undefined;
+    this.database = undefined;
+    this.metadata = undefined;
+    this.collections.clear();
+    await this.client.close();
+  }
+
+  protected override async persist(state: StorageFile): Promise<void> {
+    for (const name of storageCollectionNames) {
+      const collection = this.getCollection(name);
+      const previous =
+        (this.state?.[name] as StorageRecord[] | undefined) ?? [];
+      const next = state[name] as StorageRecord[];
+      const previousById = new Map(previous.map((record) => [record.id, record]));
+      const nextById = new Map(next.map((record) => [record.id, record]));
+      const operations = [
+        ...next
+          .filter(
+            (record) =>
+              JSON.stringify(previousById.get(record.id)) !==
+              JSON.stringify(record),
+          )
+          .map((record) => ({
+            replaceOne: {
+              filter: { id: record.id },
+              replacement: toMongoDocument(record),
+              upsert: true,
+            },
+          })),
+        ...previous
+          .filter((record) => !nextById.has(record.id))
+          .map((record) => ({
+            deleteOne: { filter: { id: record.id } },
+          })),
+      ];
+
+      if (operations.length > 0) {
+        await collection.bulkWrite(operations);
+      }
+    }
+  }
+
+  private async createIndexes(): Promise<void> {
+    const users = this.getCollection("users");
+    await Promise.all([
+      ...storageCollectionNames.map((name) =>
+        this.getCollection(name).createIndex({ id: 1 }, { unique: true }),
+      ),
+      users.createIndex({ email: 1 }, { unique: true }),
+      users.createIndex(
+        { googleSubject: 1 },
+        {
+          unique: true,
+          partialFilterExpression: { googleSubject: { $type: "string" } },
+        },
+      ),
+      this.getCollection("passwordResetTokens").createIndex(
+        { tokenHash: 1 },
+        { unique: true },
+      ),
+      this.getCollection("oauthStates").createIndex(
+        { stateHash: 1 },
+        { unique: true },
+      ),
+      this.getCollection("projects").createIndex({ ownerUserId: 1 }),
+      this.getCollection("documents").createIndex({ projectId: 1 }),
+      this.getCollection("requirements").createIndex({ projectId: 1 }),
+      this.getCollection("artifacts").createIndex({ projectId: 1 }),
+      this.getCollection("approvals").createIndex({ projectId: 1 }),
+      this.getCollection("auditEvents").createIndex({ createdAt: -1 }),
+    ]);
+  }
+
+  private getCollection(name: StorageCollectionName): Collection<Document> {
+    const collection = this.collections.get(name);
+    if (!collection) {
+      throw new Error(`MongoDB collection is unavailable: ${name}`);
+    }
+    return collection;
   }
 }
 
@@ -2563,6 +2752,67 @@ function createEmptyStorage(): StorageFile {
     passwordResetTokens: [],
     oauthStates: [],
   };
+}
+
+function parseStorageFile(contents: string, filePath: string): StorageFile {
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(contents);
+  } catch {
+    throw new Error(`JSON storage file contains invalid JSON: ${filePath}`);
+  }
+
+  const parsedStorage = storageFileSchema.safeParse(parsedJson);
+  if (parsedStorage.success) {
+    return parsedStorage.data;
+  }
+
+  const legacyStorage = legacyStorageFileSchema.safeParse(parsedJson);
+  if (!legacyStorage.success) {
+    throw new Error(
+      `JSON storage file has an unsupported or invalid structure: ${filePath}`,
+    );
+  }
+
+  const migratedState = createEmptyStorage();
+  migratedState.users = legacyStorage.data.users;
+  migratedState.projects = legacyStorage.data.projects.map((project) => ({
+    id: project.id,
+    name:
+      typeof project.name === "string" ? project.name : `Project ${project.id}`,
+    description:
+      typeof project.description === "string" ? project.description : "",
+    businessObjective: "",
+    inScope: "",
+    outOfScope: "",
+    stakeholders: [],
+    constraints: [],
+    desiredOutputs: [],
+    ownerUserId: project.ownerUserId,
+    members: project.members,
+    status: "active",
+    createdAt:
+      typeof project.createdAt === "string"
+        ? project.createdAt
+        : new Date(0).toISOString(),
+    updatedAt:
+      typeof project.updatedAt === "string"
+        ? project.updatedAt
+        : new Date(0).toISOString(),
+  }));
+  return migratedState;
+}
+
+function toMongoDocument<T extends StorageRecord>(record: T): Document {
+  return { ...record };
+}
+
+function fromMongoDocument(record: Document): StorageRecord {
+  const { _id: _ignored, ...data } = record;
+  if (typeof data.id !== "string") {
+    throw new Error("MongoDB storage contains a record without a string ID");
+  }
+  return data as StorageRecord;
 }
 
 function appendAuditEvent(
