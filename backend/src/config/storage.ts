@@ -133,6 +133,12 @@ export interface Page<T> {
   total: number;
 }
 
+export interface AuditEventListRecord extends AuditEventRecord {
+  actorEmail?: string;
+  projectName?: string;
+  resourceLabel?: string;
+}
+
 export type FirstAdminBootstrapResult =
   | { status: "claimed"; user: UserRecord }
   | { status: "already_configured" }
@@ -292,6 +298,10 @@ export interface Storage extends ProjectRepository {
     actorUserId: string,
   ): Promise<ProjectRecord | null>;
   listAuditEvents(page: number, limit: number): Promise<Page<AuditEventRecord>>;
+  listAuditEventsWithLabels(
+    page: number,
+    limit: number,
+  ): Promise<Page<AuditEventListRecord>>;
   exportAuditEvents(actorUserId: string): Promise<AuditEventRecord[]>;
   listTemplates(
     activeOnly?: boolean,
@@ -972,6 +982,41 @@ export class JsonFileStorage
       right.createdAt.localeCompare(left.createdAt),
     );
     return makePage(events, page, limit);
+  }
+
+  async listAuditEventsWithLabels(
+    page: number,
+    limit: number,
+  ): Promise<Page<AuditEventListRecord>> {
+    const state = this.getState();
+    const events = [...state.auditEvents].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    );
+    const eventPage = makePage(events, page, limit);
+
+    return {
+      ...eventPage,
+      items: eventPage.items.map((event) => {
+        const resource = resolveAuditResource(event, state);
+        const projectId =
+          event.projectId ??
+          resource.projectId ??
+          (event.resourceType === "project" ? event.resourceId : undefined);
+        const actorEmail = state.users.find(
+          (user) => user.id === event.actorUserId,
+        )?.email;
+        const projectName = projectId
+          ? state.projects.find((project) => project.id === projectId)?.name
+          : undefined;
+
+        return {
+          ...event,
+          ...(actorEmail ? { actorEmail } : {}),
+          ...(projectName ? { projectName } : {}),
+          ...(resource.label ? { resourceLabel: resource.label } : {}),
+        };
+      }),
+    };
   }
 
   exportAuditEvents(actorUserId: string): Promise<AuditEventRecord[]> {
@@ -2107,6 +2152,70 @@ function appendAuditEvent(
     id: randomUUID(),
     createdAt: new Date().toISOString(),
   });
+}
+
+function resolveAuditResource(
+  event: AuditEventRecord,
+  state: StorageFile,
+): { label?: string; projectId?: string } {
+  switch (event.resourceType) {
+    case "user":
+      return {
+        label: state.users.find((user) => user.id === event.resourceId)?.email,
+      };
+    case "project": {
+      const project = state.projects.find(
+        (record) => record.id === event.resourceId,
+      );
+      return { label: project?.name, projectId: event.resourceId };
+    }
+    case "document": {
+      const document = state.documents.find(
+        (record) => record.id === event.resourceId,
+      );
+      return { label: document?.fileName, projectId: document?.projectId };
+    }
+    case "requirement": {
+      const requirement = state.requirements.find(
+        (record) => record.id === event.resourceId,
+      );
+      return { label: requirement?.title, projectId: requirement?.projectId };
+    }
+    case "artifact": {
+      const artifact = state.artifacts.find(
+        (record) => record.id === event.resourceId,
+      );
+      return { label: artifact?.type, projectId: artifact?.projectId };
+    }
+    case "execution": {
+      const execution = state.executions.find(
+        (record) => record.id === event.resourceId,
+      );
+      return {
+        label: execution?.workflowName,
+        projectId: execution?.projectId,
+      };
+    }
+    case "approval": {
+      const approval = state.approvals.find(
+        (record) => record.id === event.resourceId,
+      );
+      const artifactType = event.after?.artifactType;
+      return {
+        label:
+          approval?.artifactType ??
+          (typeof artifactType === "string" ? artifactType : undefined),
+        projectId: approval?.projectId,
+      };
+    }
+    case "template":
+      return {
+        label: state.templates.find((record) => record.id === event.resourceId)
+          ?.name,
+      };
+    case "audit_event":
+      return { label: "Audit history" };
+  }
 }
 
 function makePage<T>(records: T[], page: number, limit: number): Page<T> {

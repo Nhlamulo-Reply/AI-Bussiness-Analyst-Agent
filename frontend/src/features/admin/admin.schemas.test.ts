@@ -6,6 +6,33 @@ import {
 } from "./admin.schemas";
 
 describe("audit event schema", () => {
+  it("accepts display labels while retaining the original identifiers", () => {
+    expect(
+      auditEventSchema.safeParse({
+        id: "event-1",
+        actorUserId: "actor-uuid",
+        actorEmail: "analyst@example.test",
+        action: "document.uploaded",
+        resourceType: "document",
+        resourceId: "document-uuid",
+        resourceLabel: "brief.pdf",
+        projectId: "project-uuid",
+        projectName: "Customer onboarding",
+        createdAt: "2026-03-02T03:04:05.000Z",
+      }),
+    ).toMatchObject({
+      success: true,
+      data: {
+        actorUserId: "actor-uuid",
+        resourceId: "document-uuid",
+        projectId: "project-uuid",
+        actorEmail: "analyst@example.test",
+        resourceLabel: "brief.pdf",
+        projectName: "Customer onboarding",
+      },
+    });
+  });
+
   it("accepts project, content, and workflow audit events", () => {
     for (const [action, resourceType] of [
       ["user.deactivated", "user"],

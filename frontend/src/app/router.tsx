@@ -11,6 +11,7 @@ import {
   ResetPasswordPage,
   GoogleCallbackPage,
   PendingAccessPage,
+  LandingPage,
   CreateProjectPage,
   DeliveryReviewWorkspacePage,
   CreateRequirementRoute,
@@ -41,7 +42,7 @@ function AppIndexRoute() {
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <Navigate to="/app" replace />,
+    element: page(<LandingPage />),
   },
   {
     path: "/login",

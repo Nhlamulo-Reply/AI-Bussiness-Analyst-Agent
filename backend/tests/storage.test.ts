@@ -1,10 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  JsonFileStorage,
-  LastActiveAdminError,
-} from "../src/config/storage";
+import { JsonFileStorage, LastActiveAdminError } from "../src/config/storage";
 import { DuplicateUserError } from "../src/modules/auth/user.repository";
 
 describe("JsonFileStorage", () => {
@@ -58,6 +55,130 @@ describe("JsonFileStorage", () => {
     ]);
     expect(await reloadedStorage.findByEmail(user.email)).toEqual(user);
     await reloadedStorage.close();
+  });
+
+  it("adds current labels to audit listings without changing stored IDs or exports", async () => {
+    const storage = new JsonFileStorage({
+      jsonStoragePath: join(temporaryDirectory, "store.json"),
+    });
+    await storage.connect();
+    const now = new Date().toISOString();
+    const user = await storage.insertUser({
+      email: "analyst@example.test",
+      passwordHash: "bcrypt-hash",
+      roles: ["business_analyst"],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const project = {
+      id: "project-audit",
+      name: "Customer onboarding",
+      description: "",
+      businessObjective: "",
+      inScope: "",
+      outOfScope: "",
+      stakeholders: [],
+      constraints: [],
+      desiredOutputs: [],
+      ownerUserId: user.id,
+      members: [],
+      status: "active" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await storage.createProject(project);
+    await storage.createDocument({
+      id: "document-audit",
+      projectId: project.id,
+      uploadedByUserId: user.id,
+      fileName: "onboarding-brief.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 4,
+      contentBase64: "dGVzdA==",
+      status: "uploaded",
+      createdAt: now,
+    });
+    await storage.createRequirement({
+      id: "requirement-audit",
+      projectId: project.id,
+      title: "Support secure account recovery",
+      description: "",
+      type: "business",
+      status: "draft",
+      priority: "medium",
+      sourceFacts: [],
+      assumptions: [],
+      openQuestions: [],
+      traceability: { documentIds: [] },
+      version: 1,
+      createdByUserId: user.id,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await storage.createArtifact({
+      id: "artifact-audit",
+      projectId: project.id,
+      type: "story",
+      title: "Recover an account",
+      description: "",
+      status: "draft",
+      requirementIds: [],
+      data: {},
+      version: 1,
+      createdByUserId: user.id,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const labeledEvents = await storage.listAuditEventsWithLabels(1, 100);
+    const documentEvent = labeledEvents.items.find(
+      (event) => event.resourceId === "document-audit",
+    );
+    const requirementEvent = labeledEvents.items.find(
+      (event) => event.resourceId === "requirement-audit",
+    );
+    const artifactEvent = labeledEvents.items.find(
+      (event) => event.resourceId === "artifact-audit",
+    );
+    const projectEvent = labeledEvents.items.find(
+      (event) => event.resourceId === project.id,
+    );
+
+    expect(documentEvent).toMatchObject({
+      actorUserId: user.id,
+      actorEmail: user.email,
+      resourceId: "document-audit",
+      resourceLabel: "onboarding-brief.pdf",
+      projectId: project.id,
+      projectName: project.name,
+    });
+    expect(requirementEvent).toMatchObject({
+      resourceId: "requirement-audit",
+      resourceLabel: "Support secure account recovery",
+      projectName: project.name,
+    });
+    expect(artifactEvent).toMatchObject({
+      resourceId: "artifact-audit",
+      resourceLabel: "story",
+      projectName: project.name,
+    });
+    expect(projectEvent).toMatchObject({
+      resourceId: project.id,
+      projectId: project.id,
+      resourceLabel: project.name,
+      projectName: project.name,
+    });
+    expect(JSON.stringify(labeledEvents)).not.toContain("dGVzdA==");
+
+    const rawEvents = await storage.listAuditEvents(1, 100);
+    expect(
+      rawEvents.items.find((event) => event.resourceId === "document-audit"),
+    ).not.toHaveProperty("resourceLabel");
+    const exportedEvents = await storage.exportAuditEvents(user.id);
+    expect(exportedEvents.every((event) => !("actorEmail" in event))).toBe(
+      true,
+    );
+    await storage.close();
   });
 
   it("loads existing JSON records with defaults for newly added lifecycle and template fields", async () => {

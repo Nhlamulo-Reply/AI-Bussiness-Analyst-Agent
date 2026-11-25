@@ -143,4 +143,25 @@ describe("AppShell role-aware navigation", () => {
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
     expect(window.localStorage.getItem("clarity-theme")).toBe("light");
   });
+
+  it("collapses the sidebar while keeping navigation accessible", async () => {
+    renderProjectShell({
+      id: "user-1",
+      email: "analyst@example.com",
+      roles: ["business_analyst"],
+    });
+
+    expect(
+      await screen.findByRole("link", {
+        name: "AIVA — AI Virtual Analyst home",
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    expect(
+      screen.getByRole("button", { name: "Expand sidebar" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("link", { name: "Projects" })).toBeInTheDocument();
+  });
 });

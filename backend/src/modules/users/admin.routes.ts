@@ -506,7 +506,7 @@ export function createAdminRouter(
     async (request, response, next) => {
       try {
         const { page, limit } = parsePagination(request.query);
-        const events = await storage.listAuditEvents(page, limit);
+        const events = await storage.listAuditEventsWithLabels(page, limit);
         response
           .status(200)
           .json({ success: true, data: events, requestId: request.id });

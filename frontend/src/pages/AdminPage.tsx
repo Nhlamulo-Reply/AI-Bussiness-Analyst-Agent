@@ -68,6 +68,56 @@ const userColumns: DataTableColumn<AdminUser>[] = [
   },
 ];
 
+const auditResourceTypeLabels: Record<AuditEvent["resourceType"], string> = {
+  user: "User",
+  project: "Project",
+  document: "Document",
+  requirement: "Requirement",
+  artifact: "Artifact",
+  execution: "AI workflow",
+  approval: "Approval",
+  template: "Template",
+  audit_event: "Audit history",
+};
+
+const auditArtifactTypeLabels: Record<string, string> = {
+  requirement: "Requirement",
+  epic: "Epic",
+  story: "User story",
+  acceptance_criteria: "Acceptance criteria",
+  business_rule: "Business rule",
+  risk: "Risk",
+  dependency: "Dependency",
+  implementation_plan: "Implementation plan",
+};
+
+function formatAuditLabel(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+}
+
+function getAuditResourceLabel(event: AuditEvent) {
+  if (!event.resourceLabel) return auditResourceTypeLabels[event.resourceType];
+  if (event.resourceType === "artifact") {
+    return (
+      auditArtifactTypeLabels[event.resourceLabel] ??
+      formatAuditLabel(event.resourceLabel)
+    );
+  }
+  if (event.resourceType === "approval") {
+    const artifactLabel =
+      auditArtifactTypeLabels[event.resourceLabel] ??
+      formatAuditLabel(event.resourceLabel);
+    return `${artifactLabel} approval`;
+  }
+  if (event.resourceType === "execution") {
+    return `${formatAuditLabel(event.resourceLabel)} workflow`;
+  }
+  return event.resourceLabel;
+}
+
 const auditColumns: DataTableColumn<AuditEvent>[] = [
   {
     key: "event",
@@ -77,16 +127,48 @@ const auditColumns: DataTableColumn<AuditEvent>[] = [
   {
     key: "actor",
     header: "Actor",
-    render: (event) => <code>{event.actorUserId}</code>,
+    render: (event) => event.actorEmail ?? "Unknown user",
   },
   {
     key: "resource",
     header: "Resource",
     render: (event) => (
-      <span>
-        {event.resourceType} <code>{event.resourceId}</code>
-      </span>
+      <div className="audit-resource">
+        <strong>{getAuditResourceLabel(event)}</strong>
+        <span>{auditResourceTypeLabels[event.resourceType]}</span>
+        <details className="audit-identifiers">
+          <summary>Show IDs</summary>
+          <dl>
+            <div>
+              <dt>Actor ID</dt>
+              <dd>
+                <code>{event.actorUserId}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Resource ID</dt>
+              <dd>
+                <code>{event.resourceId}</code>
+              </dd>
+            </div>
+            {event.projectId ? (
+              <div>
+                <dt>Project ID</dt>
+                <dd>
+                  <code>{event.projectId}</code>
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </details>
+      </div>
     ),
+  },
+  {
+    key: "project",
+    header: "Project",
+    render: (event) =>
+      event.projectId ? (event.projectName ?? "Unknown project") : "—",
   },
   {
     key: "time",

@@ -6,6 +6,11 @@ export const AuthPage = lazy(() =>
     default: module.AuthPage,
   })),
 );
+export const LandingPage = lazy(() =>
+  import("../pages/LandingPage").then((module) => ({
+    default: module.LandingPage,
+  })),
+);
 export const ForgotPasswordPage = lazy(() =>
   import("../pages/ForgotPasswordPage").then((module) => ({
     default: module.ForgotPasswordPage,

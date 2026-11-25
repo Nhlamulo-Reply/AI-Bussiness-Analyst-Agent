@@ -1,7 +1,8 @@
 :root {
   color-scheme: light;
   font-family:
-    Inter,
+    "Inter Variable",
+    "Inter",
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -13,34 +14,72 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  --background: #f4f6fb;
-  --surface: #ffffff;
-  --surface-muted: #eef2f8;
-  --foreground: #172033;
-  --muted: #66738a;
-  --muted-strong: #4c5870;
-  --border: #e2e8f1;
-  --border-strong: #cfd8e6;
-  --primary: #5b4ce2;
-  --primary-strong: #4939c6;
-  --primary-soft: #eeecff;
-  --primary-faint: #f6f5ff;
-  --success: #16835d;
-  --success-soft: #e8f7f0;
-  --warning: #ad6d10;
-  --warning-soft: #fff5df;
-  --danger: #be4351;
-  --danger-soft: #fff0f1;
-  --info: #3568ae;
-  --info-soft: #edf4ff;
-  --shadow-sm: 0 3px 12px rgb(30 45 76 / 6%);
-  --shadow-md: 0 18px 48px rgb(29 42 74 / 11%);
-  --shadow-lg: 0 28px 80px rgb(24 22 65 / 20%);
-  --radius-sm: 9px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 27px;
-  --sidebar-width: 250px;
+  --color-navy: #101b3d;
+  --color-navy-secondary: #1c2a4a;
+  --color-teal: #13b8a6;
+  --color-purple-ai: #7255d9;
+  --color-background: #f4f6ff;
+  --color-surface: #ffffff;
+  --color-text: #18233d;
+  --color-text-muted: #667085;
+  --color-border: #e2e7fb;
+  --color-success: #16a36a;
+  --color-warning: #e8a23a;
+  --color-danger: #dc5555;
+  --color-information: #3685d9;
+
+  --background: var(--color-background);
+  --surface: var(--color-surface);
+  --surface-muted: #f0f3f8;
+  --foreground: var(--color-text);
+  --muted: var(--color-text-muted);
+  --muted-strong: #475467;
+  --border: var(--color-border);
+  --border-strong: #cfd6e4;
+  --primary: var(--color-teal);
+  --primary-strong: #06665e;
+  --primary-soft: #e6f7f5;
+  --primary-faint: #f2fbfa;
+  --ai-accent: var(--color-purple-ai);
+  --success: var(--color-success);
+  --success-soft: #e7f6ef;
+  --warning: var(--color-warning);
+  --warning-soft: #fff5e5;
+  --danger: var(--color-danger);
+  --danger-strong: #b4232f;
+  --danger-soft: #fff0f0;
+  --info: var(--color-information);
+  --info-soft: #edf5fd;
+
+  --sidebar-background: #07153f;
+  --sidebar-border: #1c2a5b;
+  --sidebar-foreground: #f5f7fb;
+  --sidebar-muted: #c1ccdc;
+  --sidebar-label: #aab8dc;
+  --sidebar-active: #72e0d3;
+  --sidebar-active-background: rgb(19 184 166 / 15%);
+  --sidebar-hover-background: rgb(255 255 255 / 8%);
+  --brand-surface: #ffffff;
+
+  --font-size-page-title: 1.75rem;
+  --font-size-page-description: 0.875rem;
+  --font-size-section-heading: 1.25rem;
+  --font-size-card-heading: 1rem;
+  --font-size-body: 0.9375rem;
+  --font-size-table: 0.875rem;
+  --font-size-label: 0.8125rem;
+  --font-size-button: 0.875rem;
+  --font-size-metadata: 0.75rem;
+
+  --shadow-sm: 0 3px 12px rgb(40 57 133 / 8%);
+  --shadow-md: 0 12px 32px rgb(40 57 133 / 12%);
+  --shadow-lg: 0 20px 52px rgb(40 57 133 / 18%);
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --sidebar-width: 244px;
+  --sidebar-collapsed-width: 76px;
 
   font-size: 15px;
   color: var(--foreground);
@@ -50,26 +89,39 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --background: #0e1625;
-  --surface: #151f31;
+  --color-background: #0e1625;
+  --color-surface: #151f31;
+  --color-text: #edf2fb;
+  --color-text-muted: #a4b0c5;
+  --color-border: #2a3950;
+  --color-teal: #42d4c4;
+  --color-purple-ai: #a998ff;
+  --color-success: #5bd1a2;
+  --color-warning: #f2c16d;
+  --color-danger: #ff929c;
+  --color-information: #84b9ff;
+
   --surface-muted: #1c2a40;
-  --foreground: #edf2fb;
-  --muted: #a4b0c5;
   --muted-strong: #c2ccdc;
-  --border: #2a3950;
   --border-strong: #40516b;
-  --primary: #aa9fff;
-  --primary-strong: #c4bbff;
-  --primary-soft: #302b56;
-  --primary-faint: #211f3b;
-  --success: #5bd1a2;
+  --primary-strong: #83e6dc;
+  --primary-soft: #183a3b;
+  --primary-faint: #152f32;
   --success-soft: #173c33;
-  --warning: #f2c16d;
   --warning-soft: #44351d;
-  --danger: #ff929c;
+  --danger-strong: #ffb3bb;
   --danger-soft: #47252f;
-  --info: #84b9ff;
   --info-soft: #1e3451;
+
+  --sidebar-background: #101b3d;
+  --sidebar-border: #293858;
+  --sidebar-foreground: #f5f7fb;
+  --sidebar-muted: #c1ccdc;
+  --sidebar-label: #9eacc2;
+  --sidebar-active: #72e0d3;
+  --sidebar-active-background: rgb(19 184 166 / 15%);
+  --sidebar-hover-background: rgb(255 255 255 / 8%);
+
   --shadow-sm: 0 3px 16px rgb(0 0 0 / 18%);
   --shadow-md: 0 18px 48px rgb(0 0 0 / 28%);
   --shadow-lg: 0 28px 80px rgb(0 0 0 / 42%);

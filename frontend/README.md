@@ -1,7 +1,13 @@
 # AI Business Analyst Agent — Frontend
 
-The frontend is a standalone React, TypeScript, and Vite application. It includes
-the responsive workspace shell, in-memory authentication, a live dashboard,
+The frontend is a standalone React, TypeScript, and Vite application branded
+AIVA — AI Virtual Analyst. Its shared shell uses the bundled Inter font,
+centralized navy/teal/purple design tokens, a collapsible desktop sidebar, a
+mobile navigation drawer, and persistent light/dark themes. It includes
+an unauthenticated public landing page at `/` with direct registration and
+sign-in links. Login and registration remain separate routes, while `/app`
+continues to require an authenticated, authorized session. The application
+includes in-memory authentication, a live dashboard,
 paginated project browsing, project creation, project overview, a live project
 document library, a backend-backed requirements register, and a deliverables
 workspace. The workspace supports a persistent light/dark theme toggle in the

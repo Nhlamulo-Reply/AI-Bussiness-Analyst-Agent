@@ -527,6 +527,18 @@ describe("backend foundation", () => {
     ).toEqual(
       expect.arrayContaining(["admin.bootstrap", "user.roles_changed"]),
     );
+    expect(
+      auditResponse.body.data.items.find(
+        (event: { action: string; resourceId: string }) =>
+          event.action === "user.roles_changed" &&
+          event.resourceId === target.id,
+      ),
+    ).toMatchObject({
+      actorUserId: claimedUserId,
+      actorEmail: claimedEmail,
+      resourceId: target.id,
+      resourceLabel: "bootstrap-managed-user@example.com",
+    });
   });
 
   it("deactivates accounts, revokes JWTs immediately, and allows reactivation", async () => {

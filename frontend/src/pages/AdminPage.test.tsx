@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -18,7 +18,7 @@ import {
   updateAdminUserActive,
   updateAdminUserRoles,
 } from "../features/admin/admin-api";
-import type { AdminUser } from "../features/admin/admin.schemas";
+import type { AdminUser, AuditEvent } from "../features/admin/admin.schemas";
 import { useAuth } from "../features/auth/useAuth";
 import { AdminPage } from "./AdminPage";
 
@@ -177,6 +177,71 @@ describe("AdminPage", () => {
         "product_owner",
       ]),
     );
+  });
+
+  it("shows readable audit labels and keeps original identifiers available", async () => {
+    const auditEvents: AuditEvent[] = [
+      {
+        id: "event-document",
+        actorUserId: "actor-uuid",
+        actorEmail: "analyst@example.test",
+        action: "document.uploaded",
+        resourceType: "document",
+        resourceId: "document-uuid",
+        resourceLabel: "onboarding-brief.pdf",
+        projectId: "project-uuid",
+        projectName: "Customer onboarding",
+        createdAt: "2026-03-04T05:06:07.000Z",
+      },
+      {
+        id: "event-story",
+        actorUserId: "actor-uuid",
+        actorEmail: "analyst@example.test",
+        action: "artifact.created",
+        resourceType: "artifact",
+        resourceId: "artifact-uuid",
+        resourceLabel: "story",
+        projectId: "project-uuid",
+        projectName: "Customer onboarding",
+        createdAt: "2026-03-04T05:06:08.000Z",
+      },
+    ];
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser],
+      page: 1,
+      limit: 100,
+      total: 1,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: auditEvents,
+      page: 1,
+      limit: 100,
+      total: auditEvents.length,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    renderAdminPage(true);
+
+    const auditTable = await screen.findByRole("table", {
+      name: "2 most recent audit events",
+    });
+    expect(
+      within(auditTable).getAllByText("analyst@example.test"),
+    ).toHaveLength(2);
+    expect(
+      within(auditTable).getByText("onboarding-brief.pdf"),
+    ).toBeInTheDocument();
+    expect(within(auditTable).getAllByText("Customer onboarding")).toHaveLength(
+      2,
+    );
+    expect(within(auditTable).getByText("User story")).toBeInTheDocument();
+
+    const documentRow = within(auditTable).getByRole("row", {
+      name: /document uploaded/,
+    });
+    await userEvent.setup().click(within(documentRow).getByText("Show IDs"));
+    expect(within(documentRow).getByText("actor-uuid")).toBeInTheDocument();
+    expect(within(documentRow).getByText("document-uuid")).toBeInTheDocument();
+    expect(within(documentRow).getByText("project-uuid")).toBeInTheDocument();
   });
 
   it("shows pending users without roles and lets an admin assign one", async () => {

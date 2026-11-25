@@ -9,6 +9,8 @@ import {
   MessageSquareText,
   Menu,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldCheck,
   Settings,
   Sparkles,
@@ -50,7 +52,7 @@ const workspaceLinks: Array<{
   permission: Permission | readonly Permission[];
 }> = [
   {
-    label: "Overview",
+    label: "Dashboard",
     to: "/app",
     icon: LayoutDashboard,
     end: true,
@@ -122,7 +124,13 @@ const projectLinks: Array<{
   },
 ];
 
-function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+function Navigation({
+  onNavigate,
+  collapsed = false,
+}: {
+  onNavigate?: () => void;
+  collapsed?: boolean;
+}) {
   const { projectId } = useParams();
   const { session } = useAuth();
   const isAdmin = hasPermission(session?.user.roles, "admin.users");
@@ -144,6 +152,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             end={end}
             key={to}
             onClick={onNavigate}
+            aria-label={collapsed ? label : undefined}
+            title={collapsed ? label : undefined}
             to={to}
           >
             <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
@@ -156,6 +166,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             `nav-link ${isActive ? "nav-link--active" : ""}`
           }
           onClick={onNavigate}
+          aria-label={collapsed ? "Administration" : undefined}
+          title={collapsed ? "Administration" : undefined}
           to="/app/admin"
         >
           <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
@@ -182,6 +194,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
                 end={end}
                 key={label}
                 onClick={onNavigate}
+                aria-label={collapsed ? label : undefined}
+                title={collapsed ? label : undefined}
                 to={`/app/projects/${projectId}${suffix}`}
               >
                 <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
@@ -196,12 +210,12 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 
 function Brand() {
   return (
-    <Link aria-label="Clarity home" className="brand" to="/app">
-      <span className="brand__mark">
-        <Sparkles aria-hidden="true" size={18} strokeWidth={2} />
-      </span>
-      <span className="brand__wordmark">clarity</span>
-      <span className="brand__period">.</span>
+    <Link
+      aria-label="AIVA — AI Virtual Analyst home"
+      className="brand"
+      to="/app"
+    >
+      <img alt="" className="brand__logo" src="/aiva-logo.png" />
     </Link>
   );
 }
@@ -211,6 +225,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const { session, signOut } = useAuth();
   const user = session?.user;
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [menuState, setMenuState] = useState({
     open: false,
@@ -242,13 +257,15 @@ export function AppShell() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${sidebarCollapsed ? " app-shell--sidebar-collapsed" : ""}`}
+    >
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
       <aside className="sidebar">
         <Brand />
-        <Navigation />
+        <Navigation collapsed={sidebarCollapsed} />
         <div className="sidebar__bottom">
           <div className="sidebar__help">
             <span className="sidebar__help-icon">
@@ -280,6 +297,18 @@ export function AppShell() {
       <div className="app-shell__main">
         <header className="topbar">
           <IconButton
+            aria-pressed={sidebarCollapsed}
+            className="topbar__sidebar-toggle"
+            label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen aria-hidden="true" size={19} />
+            ) : (
+              <PanelLeftClose aria-hidden="true" size={19} />
+            )}
+          </IconButton>
+          <IconButton
             className="topbar__menu"
             label={menuOpen ? "Close navigation" : "Open navigation"}
             onClick={() => setMenuOpen(true)}
@@ -308,16 +337,25 @@ export function AppShell() {
             </IconButton>
             <Badge tone="accent">{roleLabel}</Badge>
             <span aria-hidden="true" className="topbar__divider" />
-            <span className="topbar__avatar" title={user?.email}>
+            <Link
+              aria-label="View profile"
+              className="topbar__avatar topbar__profile-link"
+              title={user?.email}
+              to="/app/profile"
+            >
               <UserRound aria-hidden="true" size={17} />
-            </span>
+            </Link>
           </div>
         </header>
 
-        <main className="page-content" id="main-content">
+        <main
+          className="page-content"
+          data-page={pageTitle.toLowerCase()}
+          id="main-content"
+        >
           <Outlet />
           <footer className="app-footer">
-            <span>Clarity workspace</span>
+            <span>AIVA workspace</span>
             <span>Thoughtful analysis. Traceable decisions.</span>
           </footer>
         </main>
@@ -325,7 +363,7 @@ export function AppShell() {
 
       <Dialog
         className="drawer-dialog"
-        description="Navigate the Clarity workspace."
+        description="Navigate the AIVA workspace."
         onOpenChange={setMenuOpen}
         open={menuOpen}
         title="Navigation"
@@ -360,7 +398,7 @@ export function AppShell() {
 }
 
 function getPageTitle(pathname: string) {
-  if (pathname === "/app") return "Overview";
+  if (pathname === "/app") return "Dashboard";
   if (pathname === "/app/projects") return "Projects";
   if (pathname.endsWith("/documents")) return "Documents";
   if (pathname.endsWith("/requirements")) return "Requirements";

@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   ClipboardCheck,
   FileStack,
-  Lightbulb,
   MessageSquareText,
   Plus,
   RotateCw,
@@ -30,27 +29,6 @@ import { getApiErrorPresentation } from "../lib/api-client";
 import { Dialog } from "../components/ui/Dialog";
 import { Card } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
-
-const principles = [
-  {
-    icon: FileStack,
-    title: "Keep context connected",
-    copy: "Bring source material, requirements, and decisions into one considered workspace.",
-    tone: "violet",
-  },
-  {
-    icon: Lightbulb,
-    title: "Make the unknown visible",
-    copy: "Keep assumptions, open questions, and supporting evidence close to the work.",
-    tone: "amber",
-  },
-  {
-    icon: ClipboardCheck,
-    title: "Move forward with care",
-    copy: "Treat AI output as a draft, then give people a clear path to review and refine it.",
-    tone: "mint",
-  },
-];
 
 const workflowSteps = [
   { number: "01", label: "Bring in context", icon: FileStack },
@@ -83,7 +61,7 @@ export function OverviewPage() {
           (left, right) =>
             Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
         )
-        .slice(0, 3),
+        .slice(0, 2),
     [projects],
   );
   const errorPresentation = getApiErrorPresentation(
@@ -336,7 +314,7 @@ export function OverviewPage() {
             className="project-card-grid project-card-grid--overview"
             role="status"
           >
-            {Array.from({ length: 3 }, (_, index) => (
+            {Array.from({ length: 2 }, (_, index) => (
               <div className="project-card project-card--skeleton" key={index}>
                 <LoadingSkeleton lines={4} />
               </div>
@@ -422,66 +400,6 @@ export function OverviewPage() {
             />
           </div>
         ) : null}
-      </section>
-
-      <section
-        aria-labelledby="principles-title"
-        className="principles-section"
-      >
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">A BETTER WAY TO WORK THROUGH COMPLEXITY</p>
-            <h2 id="principles-title">Thoughtful by design.</h2>
-          </div>
-          <p className="section-heading__aside">
-            Less noise between the source and the decision.
-          </p>
-        </div>
-        <div className="principles-grid">
-          {principles.map(({ icon: Icon, title, copy, tone }, index) => (
-            <article className="principle-card" key={title}>
-              <div
-                className={`principle-card__icon principle-card__icon--${tone}`}
-              >
-                <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
-              </div>
-              <span className="principle-card__number">{`0${index + 1}`}</span>
-              <h3>{title}</h3>
-              <p>{copy}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section aria-labelledby="workflow-title" className="workflow-preview">
-        <div className="workflow-preview__heading">
-          <div>
-            <p className="eyebrow">FROM FIRST SOURCE TO SHARED OUTCOME</p>
-            <h2 id="workflow-title">A clear path through the work.</h2>
-          </div>
-          <span className="workflow-preview__badge">
-            <span />
-            One connected process
-          </span>
-        </div>
-        <ol className="workflow-steps">
-          {workflowSteps.map(({ number, label, icon: Icon }) => (
-            <li className="workflow-step" key={number}>
-              <span className="workflow-step__icon">
-                <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-              </span>
-              <span className="workflow-step__number">{number}</span>
-              <strong>{label}</strong>
-              {number !== "04" ? (
-                <ArrowRight
-                  aria-hidden="true"
-                  className="workflow-step__arrow"
-                  size={15}
-                />
-              ) : null}
-            </li>
-          ))}
-        </ol>
       </section>
 
       <Dialog

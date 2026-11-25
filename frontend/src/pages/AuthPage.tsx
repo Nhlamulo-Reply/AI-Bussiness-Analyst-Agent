@@ -5,7 +5,6 @@ import {
   EyeOff,
   LoaderCircle,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -92,12 +91,12 @@ export function AuthPage({ mode }: AuthPageProps) {
   return (
     <main className="auth-page">
       <div className="auth-page__visual">
-        <Link aria-label="Clarity home" className="brand brand--light" to="/">
-          <span className="brand__mark">
-            <Sparkles aria-hidden="true" size={18} strokeWidth={2} />
-          </span>
-          <span className="brand__wordmark">clarity</span>
-          <span className="brand__period">.</span>
+        <Link
+          aria-label="AIVA — AI Virtual Analyst home"
+          className="brand auth-page__brand"
+          to="/"
+        >
+          <img alt="" className="brand__logo" src="/aiva-logo.png" />
         </Link>
         <div className="auth-page__message">
           <p className="eyebrow">THOUGHTFUL ANALYSIS STARTS HERE</p>
@@ -126,9 +125,9 @@ export function AuthPage({ mode }: AuthPageProps) {
       </div>
 
       <section aria-labelledby="auth-title" className="auth-page__content">
-        <Link className="auth-page__back" to="/app">
+        <Link className="auth-page__back" to="/">
           <ArrowLeft aria-hidden="true" size={15} />
-          Back to workspace
+          Back to AIVA home
         </Link>
         <div className="auth-page__card">
           <span className="auth-page__icon">
@@ -261,7 +260,7 @@ export function AuthPage({ mode }: AuthPageProps) {
           </form>
 
           <p className="auth-page__switch">
-            {isRegister ? "Already have an account?" : "New to Clarity?"}{" "}
+            {isRegister ? "Already have an account?" : "New to AIVA?"}{" "}
             <Link to={isRegister ? "/login" : "/register"}>
               {isRegister ? "Sign in" : "Create an account"}
             </Link>

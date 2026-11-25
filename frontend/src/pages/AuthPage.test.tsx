@@ -10,6 +10,24 @@ describe("AuthPage", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses AIVA branding and links back to the public landing page", () => {
+    render(
+      <AuthProvider>
+        <MemoryRouter>
+          <AuthPage mode="login" />
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "AIVA — AI Virtual Analyst home" }),
+    ).toHaveAttribute("href", "/");
+    expect(
+      screen.getByRole("link", { name: "Back to AIVA home" }),
+    ).toHaveAttribute("href", "/");
+    expect(screen.getByText("New to AIVA?")).toBeInTheDocument();
+  });
+
   it("shows a confirmation error without sending invalid credentials", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn();

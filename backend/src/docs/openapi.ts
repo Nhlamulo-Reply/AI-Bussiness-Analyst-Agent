@@ -1157,7 +1157,7 @@ export const openApiDocument = {
     "/admin/audit-events": {
       get: {
         summary:
-          "List append-only user, project, content, workflow, template, and approval audit events (admin only)",
+          "List audit events with read-time actor, resource, and project labels plus unchanged original IDs (admin only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -1171,7 +1171,14 @@ export const openApiDocument = {
             schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
           },
         ],
-        responses: { ...ok, "403": { description: "Admin role required" } },
+        responses: {
+          ...ok,
+          "200": {
+            description:
+              "Audit events include optional actorEmail, resourceLabel, and projectName display fields; stored IDs remain unchanged.",
+          },
+          "403": { description: "Admin role required" },
+        },
       },
     },
     "/requirements/analyze": workflowSubmission(

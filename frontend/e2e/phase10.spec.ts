@@ -79,6 +79,16 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.contentWidth);
 }
 
+async function expectNoVerticalOverflow(page: Page) {
+  const dimensions = await page.evaluate(() => ({
+    contentHeight: document.documentElement.clientHeight,
+    documentHeight: document.documentElement.scrollHeight,
+  }));
+  expect(dimensions.documentHeight).toBeLessThanOrEqual(
+    dimensions.contentHeight,
+  );
+}
+
 async function expectResponsiveAndAccessible(page: Page) {
   await expectNoAccessibilityViolations(page);
   await page.setViewportSize({ width: 320, height: 740 });
@@ -86,6 +96,59 @@ async function expectResponsiveAndAccessible(page: Page) {
   await expectNoAccessibilityViolations(page);
   await page.setViewportSize({ width: 1280, height: 900 });
 }
+
+test("public landing page is accessible and routes visitors to account access", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1365, height: 768 });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Welcome to AIVA",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Everything You Need for Smarter Business Analysis",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Get Started" }).first(),
+  ).toHaveAttribute("href", "/register");
+  await expectNoVerticalOverflow(page);
+  await expectResponsiveAndAccessible(page);
+
+  for (const [label, target] of [
+    ["About", "#about"],
+    ["Features", "#features"],
+    ["How It Works", "#how-it-works"],
+    ["Benefits", "#benefits"],
+    ["Testimonials", "#testimonials"],
+  ]) {
+    await page.getByRole("link", { name: label, exact: true }).click();
+    await expect(page.locator(".landing-ref__main")).toHaveAttribute(
+      "data-screen",
+      target.slice(1),
+    );
+    await expect(page.locator(target)).toBeInViewport();
+    await expectNoVerticalOverflow(page);
+  }
+
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("link", { name: "Features", exact: true }).click();
+  await expect(page.locator(".landing-ref__main")).toHaveAttribute(
+    "data-screen",
+    "features",
+  );
+  await expectNoVerticalOverflow(page);
+  await page.getByRole("link", { name: "Sign in" }).last().click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(
+    page.getByRole("heading", { name: "Welcome back" }),
+  ).toBeVisible();
+});
 
 test("login is keyboard-accessible and reflows without horizontal scrolling", async ({
   page,
@@ -192,6 +255,9 @@ test("authenticated project export downloads through the protected route", async
         total: 0,
       });
     }
+    if (method === "GET" && requestUrl.pathname === "/api/v1/templates") {
+      return fulfillJson([]);
+    }
     if (
       method === "GET" &&
       requestUrl.pathname === `/api/v1/projects/${project.id}`
@@ -224,6 +290,8 @@ test("authenticated project export downloads through the protected route", async
     .fill("e2e-test-password-123");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/app$/);
+  await page.setViewportSize({ width: 1365, height: 768 });
+  await expectNoVerticalOverflow(page);
   await expectResponsiveAndAccessible(page);
 
   await page.getByRole("link", { name: "Create project", exact: true }).click();
@@ -234,11 +302,11 @@ test("authenticated project export downloads through the protected route", async
   await page.getByRole("link", { name: "All projects" }).click();
 
   await expect(
-    page.getByRole("link", { name: "Active Customer onboarding" }),
+    page.getByRole("link", { name: /Active Customer onboarding/ }),
   ).toBeVisible();
   await expectResponsiveAndAccessible(page);
 
-  await page.getByRole("link", { name: "Active Customer onboarding" }).click();
+  await page.getByRole("link", { name: /Active Customer onboarding/ }).click();
   await expect(
     page.getByRole("heading", { name: "Customer onboarding" }),
   ).toBeVisible();
@@ -368,7 +436,7 @@ test("profile screen is accessible in desktop and mobile layouts", async ({
     .fill("e2e-test-password-123");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/app$/);
-  await page.getByRole("link", { name: /View profile/ }).click();
+  await page.getByRole("link", { name: "View profile", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Your profile" }),
   ).toBeVisible();
