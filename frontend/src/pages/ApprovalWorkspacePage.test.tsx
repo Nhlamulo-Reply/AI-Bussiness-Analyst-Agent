@@ -88,7 +88,11 @@ describe("ApprovalWorkspacePage", () => {
             method === "PATCH"
           ) {
             decision = JSON.parse(String(options?.body)).decision;
-            data = { ...approval, decision, comments: "Approved." };
+            data = {
+              ...approval,
+              decision,
+              reviewerComments: "Approved.",
+            };
           } else {
             throw new Error(`Unexpected request: ${method} ${url}`);
           }
@@ -143,7 +147,13 @@ describe("ApprovalWorkspacePage", () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/approvals/approval-1",
-      expect.objectContaining({ method: "PATCH" }),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          decision: "approved",
+          reviewerComments: "Approved.",
+        }),
+      }),
     );
     queryClient.clear();
   });

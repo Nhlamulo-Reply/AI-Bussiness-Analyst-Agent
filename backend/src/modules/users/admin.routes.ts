@@ -25,6 +25,10 @@ import { hasExclusiveAdminRole, userRoles } from "../auth/user.repository";
 import { requirePermission } from "../../common/middleware/authorization";
 
 const activeStatusSchema = z.object({ active: z.boolean() }).strict();
+const addProjectMemberSchema = z
+  .object({ memberId: z.string().min(1).max(128) })
+  .strict();
+const adminSearchSchema = z.string().trim().max(120).optional();
 const createTemplateSchema = z
   .object({
     type: templateTypeSchema,
@@ -70,17 +74,22 @@ export function createAdminRouter(
   const router = Router();
   router.use(authenticate(config.jwtSecret, storage));
 
-  router.get("/users", requirePermission("admin.users"), async (request, response, next) => {
-    try {
-      const { page, limit } = parsePagination(request.query);
-      const users = await storage.listUsers(page, limit);
-      response
-        .status(200)
-        .json({ success: true, data: users, requestId: request.id });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/users",
+    requirePermission("admin.users"),
+    async (request, response, next) => {
+      try {
+        const { page, limit } = parsePagination(request.query);
+        const search = parseAdminSearch(request.query.search);
+        const users = await storage.listUsers(page, limit, search);
+        response
+          .status(200)
+          .json({ success: true, data: users, requestId: request.id });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   router.post(
     "/users/invitations",
@@ -132,13 +141,7 @@ export function createAdminRouter(
           return;
         }
         if (error instanceof InvalidUserRolesError) {
-          next(
-            new AppError(
-              400,
-              "VALIDATION_ERROR",
-              error.message,
-            ),
-          );
+          next(new AppError(400, "VALIDATION_ERROR", error.message));
           return;
         }
         next(error);
@@ -195,10 +198,136 @@ export function createAdminRouter(
     async (request, response, next) => {
       try {
         const { page, limit } = parsePagination(request.query);
-        const projects = await storage.listProjectAccess(page, limit);
+        const search = parseAdminSearch(request.query.search);
+        const projects = await storage.listProjectAccess(page, limit, search);
         response
           .status(200)
           .json({ success: true, data: projects, requestId: request.id });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.get(
+    "/project-access/:id/members",
+    requirePermission("admin.project_access"),
+    async (request, response, next) => {
+      try {
+        const projectId = getRouteParam(request, "id");
+        if (!(await storage.getProject(projectId))) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        const { page, limit } = parsePagination(request.query);
+        const search = parseAdminSearch(request.query.search);
+        const members = await storage.listProjectMembers(
+          projectId,
+          page,
+          limit,
+          search,
+        );
+        response.status(200).json({
+          success: true,
+          data: members,
+          requestId: request.id,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.post(
+    "/project-access/:id/members",
+    requirePermission("admin.project_access"),
+    validateBody(addProjectMemberSchema),
+    async (request, response, next) => {
+      try {
+        const actor = getAuthenticatedUser(request);
+        const projectId = getRouteParam(request, "id");
+        const memberId = request.body.memberId as string;
+        const project = await storage.getProject(projectId);
+        if (!project) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        const member = await storage.findById(memberId);
+        if (
+          !member ||
+          !member.active ||
+          member.roles.length === 0 ||
+          member.roles.includes("admin") ||
+          project.ownerUserId === memberId
+        ) {
+          throw new AppError(
+            400,
+            "VALIDATION_ERROR",
+            "Project members must be active non-administrator users who are not the project owner.",
+            [
+              {
+                field: "memberId",
+                reason: "Choose an eligible active project user.",
+              },
+            ],
+          );
+        }
+        const alreadyMember = project.members.includes(memberId);
+        const updated = await storage.addProjectMember(
+          projectId,
+          memberId,
+          actor.id,
+        );
+        if (!updated) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        response.status(200).json({
+          success: true,
+          data: {
+            projectId: updated.id,
+            projectName: updated.name,
+            memberId,
+            memberCount: updated.members.length,
+            alreadyMember,
+          },
+          requestId: request.id,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.delete(
+    "/project-access/:id/members/:memberId",
+    requirePermission("admin.project_access"),
+    async (request, response, next) => {
+      try {
+        const actor = getAuthenticatedUser(request);
+        const projectId = getRouteParam(request, "id");
+        const memberId = getRouteParam(request, "memberId");
+        const project = await storage.getProject(projectId);
+        if (!project) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        const removed = project.members.includes(memberId);
+        const updated = await storage.removeProjectMember(
+          projectId,
+          memberId,
+          actor.id,
+        );
+        if (!updated) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        response.status(200).json({
+          success: true,
+          data: {
+            projectId: updated.id,
+            projectName: updated.name,
+            memberId,
+            memberCount: updated.members.length,
+            removed,
+          },
+          requestId: request.id,
+        });
       } catch (error) {
         next(error);
       }
@@ -255,6 +384,7 @@ export function createAdminRouter(
             status: updated.status,
             ownerUserId: updated.ownerUserId,
             memberIds: updated.members,
+            memberCount: updated.members.length,
           },
           requestId: request.id,
         });
@@ -264,16 +394,20 @@ export function createAdminRouter(
     },
   );
 
-  router.get("/templates", requirePermission("admin.templates"), async (request, response, next) => {
-    try {
-      const templates = await storage.listTemplates();
-      response
-        .status(200)
-        .json({ success: true, data: templates, requestId: request.id });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/templates",
+    requirePermission("admin.templates"),
+    async (request, response, next) => {
+      try {
+        const templates = await storage.listTemplates();
+        response
+          .status(200)
+          .json({ success: true, data: templates, requestId: request.id });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   router.post(
     "/templates",
@@ -332,52 +466,78 @@ export function createAdminRouter(
     },
   );
 
-  router.get("/audit-events/export", requirePermission("admin.audit"), async (request, response, next) => {
-    try {
-      const format = request.query.format ?? "json";
-      if (format !== "json" && format !== "csv") {
-        throw new AppError(
-          400,
-          "VALIDATION_ERROR",
-          "Export format must be json or csv.",
-        );
-      }
-      const actor = getAuthenticatedUser(request);
-      const events = await storage.exportAuditEvents(actor.id);
-      if (format === "csv") {
+  router.get(
+    "/audit-events/export",
+    requirePermission("admin.audit"),
+    async (request, response, next) => {
+      try {
+        const format = request.query.format ?? "json";
+        if (format !== "json" && format !== "csv") {
+          throw new AppError(
+            400,
+            "VALIDATION_ERROR",
+            "Export format must be json or csv.",
+          );
+        }
+        const actor = getAuthenticatedUser(request);
+        const events = await storage.exportAuditEvents(actor.id);
+        if (format === "csv") {
+          response
+            .status(200)
+            .type("text/csv")
+            .attachment("audit-events.csv")
+            .send(renderAuditCsv(events));
+          return;
+        }
         response
           .status(200)
-          .type("text/csv")
-          .attachment("audit-events.csv")
-          .send(renderAuditCsv(events));
-        return;
+          .type("application/json")
+          .attachment("audit-events.json")
+          .send(JSON.stringify(events, null, 2));
+      } catch (error) {
+        next(error);
       }
-      response
-        .status(200)
-        .type("application/json")
-        .attachment("audit-events.json")
-        .send(JSON.stringify(events, null, 2));
-    } catch (error) {
-      next(error);
-    }
-  });
+    },
+  );
 
-  router.get("/audit-events", requirePermission("admin.audit"), async (request, response, next) => {
-    try {
-      const { page, limit } = parsePagination(request.query);
-      const events = await storage.listAuditEvents(page, limit);
-      response
-        .status(200)
-        .json({ success: true, data: events, requestId: request.id });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/audit-events",
+    requirePermission("admin.audit"),
+    async (request, response, next) => {
+      try {
+        const { page, limit } = parsePagination(request.query);
+        const events = await storage.listAuditEvents(page, limit);
+        response
+          .status(200)
+          .json({ success: true, data: events, requestId: request.id });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   return router;
 }
 
-function renderAuditCsv(events: Awaited<ReturnType<Storage["exportAuditEvents"]>>) {
+function parseAdminSearch(value: unknown): string | undefined {
+  const parsed = adminSearchSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "The search query is invalid.",
+      parsed.error.issues.map((issue) => ({
+        field: "search",
+        reason: issue.message,
+      })),
+    );
+  }
+  return parsed.data || undefined;
+}
+
+function renderAuditCsv(
+  events: Awaited<ReturnType<Storage["exportAuditEvents"]>>,
+) {
   const columns = [
     "id",
     "actorUserId",

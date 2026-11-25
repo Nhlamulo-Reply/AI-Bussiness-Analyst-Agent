@@ -26,8 +26,14 @@ export const artifactKeys = {
     [...artifactKeys.all, userId, projectId, "list"] as const,
   versionLists: (userId: string) =>
     [...artifactKeys.all, userId, "versions"] as const,
-  list: (userId: string, projectId: string, page: number, limit: number) =>
-    [...artifactKeys.lists(userId, projectId), { page, limit }] as const,
+  list: (
+    userId: string,
+    projectId: string,
+    page: number,
+    limit: number,
+    type?: ArtifactType,
+  ) =>
+    [...artifactKeys.lists(userId, projectId), { page, limit, type }] as const,
   byId: (userId: string, projectId: string, artifactId: string) =>
     [...artifactKeys.all, userId, projectId, "by-id", artifactId] as const,
   versions: (userId: string, artifactId: string, type: ArtifactType) =>
@@ -38,15 +44,22 @@ export function useArtifacts(
   projectId: string,
   page: number,
   limit = artifactPageSize,
+  type?: ArtifactType,
 ) {
   const { session } = useAuth();
   const userId = session?.user.id;
 
   return useQuery({
-    queryKey: artifactKeys.list(userId ?? "anonymous", projectId, page, limit),
+    queryKey: artifactKeys.list(
+      userId ?? "anonymous",
+      projectId,
+      page,
+      limit,
+      type,
+    ),
     queryFn: ({ signal }) => {
       if (!userId) throw new Error("Sign in to load project artifacts.");
-      return listArtifacts({ projectId, page, limit, signal });
+      return listArtifacts({ projectId, page, limit, type, signal });
     },
     enabled: Boolean(userId && projectId),
     placeholderData: keepPreviousData,

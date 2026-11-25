@@ -432,10 +432,7 @@ export function AdminPage() {
             ) : null}
           </section>
 
-          <AdminAccessManagement
-            users={users}
-            usersReady={!usersQuery.isPending && !usersQuery.isError}
-          />
+          <AdminAccessManagement />
 
           {session?.user.id ? (
             <AdminTemplateManager userId={session.user.id} />

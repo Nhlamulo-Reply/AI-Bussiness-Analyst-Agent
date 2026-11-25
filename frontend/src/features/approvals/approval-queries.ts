@@ -13,10 +13,12 @@ import {
   createApproval,
   decideApproval,
   getApproval,
+  getArtifactApprovalHistory,
   listProjectDeliveryReviews,
   listProjectApprovals,
 } from "./approval-api";
 import type {
+  ApprovalArtifactType,
   ApprovalStatus,
   CreateApprovalInput,
   DecideApprovalInput,
@@ -39,6 +41,10 @@ export const approvalKeys = {
     ] as const,
   detail: (userId: string, approvalId: string) =>
     [...approvalKeys.all, userId, "detail", approvalId] as const,
+  histories: (userId: string) =>
+    [...approvalKeys.all, userId, "artifact-history"] as const,
+  history: (userId: string, artifactType: string, artifactId: string) =>
+    [...approvalKeys.histories(userId), artifactType, artifactId] as const,
   dashboard: (userId: string, projectIds: string[]) =>
     [...approvalKeys.all, userId, "dashboard", projectIds] as const,
   deliveryReviews: (userId: string, projectId: string) =>
@@ -177,6 +183,28 @@ export function useApprovalDetails(approvalId: string, enabled = true) {
   });
 }
 
+export function useArtifactApprovalHistory(
+  artifactType: ApprovalArtifactType,
+  artifactId: string,
+  enabled = true,
+) {
+  const { session } = useAuth();
+  const userId = session?.user.id;
+
+  return useQuery({
+    queryKey: approvalKeys.history(
+      userId ?? "anonymous",
+      artifactType,
+      artifactId,
+    ),
+    queryFn: ({ signal }) => {
+      if (!userId) throw new Error("Sign in to load review history.");
+      return getArtifactApprovalHistory(artifactType, artifactId, signal);
+    },
+    enabled: Boolean(userId && artifactId && enabled),
+  });
+}
+
 export function useDecideApproval(projectId: string) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
@@ -198,10 +226,16 @@ export function useDecideApproval(projectId: string) {
           queryKey: approvalKeys.detail(userId, approval.id),
         }),
         queryClient.invalidateQueries({
+          queryKey: approvalKeys.histories(userId),
+        }),
+        queryClient.invalidateQueries({
           queryKey: requirementKeys.lists(userId, projectId),
         }),
         queryClient.invalidateQueries({
           queryKey: artifactKeys.lists(userId, projectId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: approvalKeys.histories(userId),
         }),
       ]);
     },
@@ -255,6 +289,9 @@ export function useAddDeliveryFeedback(projectId: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: approvalKeys.detail(userId, approval.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: approvalKeys.histories(userId),
         }),
       ]);
     },

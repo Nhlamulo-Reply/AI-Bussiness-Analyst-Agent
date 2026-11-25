@@ -13,6 +13,7 @@ interface ArtifactListParams {
   projectId: string;
   page: number;
   limit: number;
+  type?: ArtifactType;
   signal?: AbortSignal;
 }
 
@@ -22,12 +23,14 @@ export function listArtifacts({
   projectId,
   page,
   limit,
+  type,
   signal,
 }: ArtifactListParams): Promise<ArtifactPage> {
   const search = new URLSearchParams({
     page: String(page),
     limit: String(limit),
   });
+  if (type) search.set("type", type);
   return apiRequest(
     `/projects/${encodeURIComponent(projectId)}/artifacts?${search}`,
     {

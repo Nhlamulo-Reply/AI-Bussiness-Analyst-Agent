@@ -19,6 +19,11 @@ import { formatProjectDate } from "../projects/format";
 import { useArtifactVersions, usePatchArtifact } from "./artifact-queries";
 import { ArtifactForm } from "./ArtifactForm";
 import { ApprovalSubmissionPanel } from "../approvals/ApprovalSubmissionPanel";
+import { useArtifactApprovalHistory } from "../approvals/approval-queries";
+import {
+  getApprovalReviewerComments,
+  getApprovalSubmitterComments,
+} from "../approvals/approval.schemas";
 import { useAuth } from "../auth/useAuth";
 import { hasPermission } from "../auth/permissions";
 import {
@@ -176,6 +181,11 @@ export function ArtifactDetailsDialog({
     currentArtifact.id,
     currentArtifact.type,
   );
+  const approvalHistoryQuery = useArtifactApprovalHistory(
+    currentArtifact.type,
+    currentArtifact.id,
+    open,
+  );
   const submissionPresentation = getApiErrorPresentation(
     patchMutation.error,
     "This artifact couldn't be updated. Please try again.",
@@ -301,6 +311,71 @@ export function ArtifactDetailsDialog({
             projectId={currentArtifact.projectId}
             status={currentArtifact.status}
           />
+
+          <section
+            aria-labelledby="artifact-review-history-heading"
+            className="artifact-detail__section"
+          >
+            <h3 id="artifact-review-history-heading">Review feedback</h3>
+            <p>
+              Product Owner decisions and delivery feedback are visible here.
+              Delivery feedback does not change the Product Owner’s decision.
+            </p>
+            {approvalHistoryQuery.isPending ? (
+              <div aria-label="Loading review feedback" role="status">
+                <LoadingSkeleton lines={2} />
+              </div>
+            ) : null}
+            {approvalHistoryQuery.isError ? (
+              <ErrorPanel
+                message={
+                  getApiErrorPresentation(
+                    approvalHistoryQuery.error,
+                    "Review feedback couldn’t be loaded.",
+                  ).message
+                }
+                title="Review feedback unavailable"
+              />
+            ) : null}
+            {approvalHistoryQuery.data?.items.length === 0 ? (
+              <p className="artifact-detail__empty">
+                No review feedback has been recorded.
+              </p>
+            ) : null}
+            {approvalHistoryQuery.data?.items.map((approval) => (
+              <article className="artifact-review-entry" key={approval.id}>
+                <div className="artifact-review-entry__heading">
+                  <strong>
+                    {approval.decision === "changes_requested"
+                      ? "Changes requested"
+                      : approval.decision.charAt(0).toUpperCase() +
+                        approval.decision.slice(1)}
+                  </strong>
+                  <time dateTime={approval.updatedAt}>
+                    {formatProjectDate(approval.updatedAt)}
+                  </time>
+                </div>
+                {getApprovalSubmitterComments(approval) ? (
+                  <p>
+                    <strong>Submitter note: </strong>
+                    {getApprovalSubmitterComments(approval)}
+                  </p>
+                ) : null}
+                {getApprovalReviewerComments(approval) ? (
+                  <p>
+                    <strong>Product Owner feedback: </strong>
+                    {getApprovalReviewerComments(approval)}
+                  </p>
+                ) : null}
+                {approval.deliveryFeedback?.map((feedback) => (
+                  <p key={`${feedback.reviewerUserId}-${feedback.createdAt}`}>
+                    <strong>Delivery Lead feedback: </strong>
+                    {feedback.comments}
+                  </p>
+                ))}
+              </article>
+            ))}
+          </section>
 
           <section className="artifact-detail__section">
             <h3>Description</h3>

@@ -26,6 +26,10 @@ import type {
   ApprovalDecision,
   ApprovalStatus,
 } from "../features/approvals/approval.schemas";
+import {
+  getApprovalReviewerComments,
+  getApprovalSubmitterComments,
+} from "../features/approvals/approval.schemas";
 import { getApiErrorPresentation } from "../lib/api-client";
 import { hasPermission } from "../features/auth/permissions";
 
@@ -109,7 +113,7 @@ export function ApprovalWorkspacePage() {
       {
         approvalId: selectedApprovalId,
         decision,
-        comments: reviewerComments.trim(),
+        reviewerComments: reviewerComments.trim(),
       },
       { onSuccess: () => setReviewerComments("") },
     );
@@ -249,9 +253,9 @@ export function ApprovalWorkspacePage() {
                         Submitted{" "}
                         {submittedAtFormatter.format(new Date(item.createdAt))}
                       </span>
-                      {item.comments ? (
+                      {getApprovalSubmitterComments(item) ? (
                         <span className="approval-page__item-note">
-                          {item.comments}
+                          {getApprovalSubmitterComments(item)}
                         </span>
                       ) : null}
                     </button>
@@ -366,10 +370,16 @@ export function ApprovalWorkspacePage() {
                       </div>
                     ) : null}
                   </dl>
-                  {details.approval.comments ? (
+                  {getApprovalSubmitterComments(details.approval) ? (
                     <section className="approval-page__note">
                       <h3>Submitter note</h3>
-                      <p>{details.approval.comments}</p>
+                      <p>{getApprovalSubmitterComments(details.approval)}</p>
+                    </section>
+                  ) : null}
+                  {getApprovalReviewerComments(details.approval) ? (
+                    <section className="approval-page__note">
+                      <h3>Product Owner feedback</h3>
+                      <p>{getApprovalReviewerComments(details.approval)}</p>
                     </section>
                   ) : null}
                   {"sourceFacts" in details.resource &&

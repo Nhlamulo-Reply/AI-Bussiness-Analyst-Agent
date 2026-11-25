@@ -1,8 +1,10 @@
 import { apiRequest } from "../../lib/api-client";
 import {
   approvalDetailSchema,
+  approvalHistorySchema,
   approvalPageSchema,
   approvalSchema,
+  type ApprovalArtifactType,
   deliveryReviewPageSchema,
   type ApprovalStatus,
   type CreateApprovalInput,
@@ -76,6 +78,22 @@ export function getApproval(approvalId: string, signal?: AbortSignal) {
     signal,
     schema: approvalDetailSchema,
   });
+}
+
+export function getArtifactApprovalHistory(
+  artifactType: ApprovalArtifactType,
+  artifactId: string,
+  signal?: AbortSignal,
+) {
+  return apiRequest(
+    `/approvals/artifact/${encodeURIComponent(artifactType)}/${encodeURIComponent(artifactId)}`,
+    {
+      method: "GET",
+      auth: "required",
+      signal,
+      schema: approvalHistorySchema,
+    },
+  );
 }
 
 export function createApproval(input: CreateApprovalInput) {

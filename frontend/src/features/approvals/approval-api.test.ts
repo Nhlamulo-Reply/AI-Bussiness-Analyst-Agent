@@ -123,7 +123,7 @@ describe("approval API", () => {
     await expect(
       decideApproval("approval-1", {
         decision: "approved",
-        comments: "Looks good.",
+        reviewerComments: "Looks good.",
       }),
     ).resolves.toEqual(updatedApproval);
 
@@ -141,7 +141,10 @@ describe("approval API", () => {
       new Headers(fetchMock.mock.calls[0][1].headers).get("Authorization"),
     ).toBe("Bearer test-token");
     expect(fetchMock.mock.calls[2][1].body).toBe(
-      JSON.stringify({ decision: "approved", comments: "Looks good." }),
+      JSON.stringify({
+        decision: "approved",
+        reviewerComments: "Looks good.",
+      }),
     );
   });
 });

@@ -136,12 +136,32 @@ export const projectAccessSchema = z
     name: z.string().min(1),
     status: z.enum(["active", "archived"]),
     ownerUserId: z.string().min(1),
-    memberIds: z.array(z.string().min(1)),
+    memberCount: z.number().int().nonnegative(),
+    memberIds: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export const projectAccessPageSchema = pageSchema(projectAccessSchema);
 export const updateProjectMembersSchema = z
   .object({ memberIds: z.array(z.string().min(1)) })
+  .strict();
+export const projectMemberSchema = z
+  .object({
+    id: z.string().min(1),
+    email: z.string().min(1),
+    roles: z.array(z.enum(userRoles)),
+    active: z.boolean(),
+  })
+  .strict();
+export const projectMemberPageSchema = pageSchema(projectMemberSchema);
+export const projectMembershipUpdateSchema = z
+  .object({
+    projectId: z.string().min(1),
+    projectName: z.string().min(1),
+    memberId: z.string().min(1),
+    memberCount: z.number().int().nonnegative(),
+    alreadyMember: z.boolean().optional(),
+    removed: z.boolean().optional(),
+  })
   .strict();
 
 export const templateTypes = [
@@ -178,3 +198,4 @@ export type UserRole = (typeof userRoles)[number];
 export type InviteUserInput = z.infer<typeof inviteUserInputSchema>;
 export type InviteUserResponse = z.infer<typeof inviteUserResponseSchema>;
 export type ProjectAccess = z.infer<typeof projectAccessSchema>;
+export type ProjectMember = z.infer<typeof projectMemberSchema>;

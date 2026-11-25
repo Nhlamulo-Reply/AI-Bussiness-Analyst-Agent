@@ -182,10 +182,9 @@ describe("backend foundation", () => {
 
   it("does not allow administrators to list projects", async () => {
     const registration = await registerUser("admin-projects@example.com");
-    const updatedUser = await storage.updateUserRoles(
-      registration.id,
-      ["admin"],
-    );
+    const updatedUser = await storage.updateUserRoles(registration.id, [
+      "admin",
+    ]);
     expect(updatedUser?.roles).toEqual(["admin"]);
 
     const adminToken = await login("admin-projects@example.com");
@@ -514,12 +513,10 @@ describe("backend foundation", () => {
     const existingSession = await request(app)
       .get("/api/v1/auth/me")
       .set("Authorization", `Bearer ${member.token}`);
-    const inactiveLogin = await request(app)
-      .post("/api/v1/auth/login")
-      .send({
-        email: "lifecycle-member@example.com",
-        password: "a-long-test-password",
-      });
+    const inactiveLogin = await request(app).post("/api/v1/auth/login").send({
+      email: "lifecycle-member@example.com",
+      password: "a-long-test-password",
+    });
 
     expect(selfDeactivation.status).toBe(400);
     expect(deactivated.status).toBe(200);
@@ -531,12 +528,10 @@ describe("backend foundation", () => {
       .patch(`/api/v1/admin/users/${member.id}/active`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ active: true });
-    const newLogin = await request(app)
-      .post("/api/v1/auth/login")
-      .send({
-        email: "lifecycle-member@example.com",
-        password: "a-long-test-password",
-      });
+    const newLogin = await request(app).post("/api/v1/auth/login").send({
+      email: "lifecycle-member@example.com",
+      password: "a-long-test-password",
+    });
     const events = await storage.listAuditEvents(1, 100);
 
     expect(reactivated.status).toBe(200);
@@ -600,7 +595,7 @@ describe("backend foundation", () => {
       name: "Test project",
       status: "active",
       ownerUserId: owner.id,
-      memberIds: [],
+      memberCount: 0,
     });
     expect(JSON.stringify(accessList.body.data)).not.toMatch(
       /description|businessObjective|documents|requirements|artifacts|approvals/i,
@@ -612,6 +607,7 @@ describe("backend foundation", () => {
       status: "active",
       ownerUserId: owner.id,
       memberIds: [member.id],
+      memberCount: 1,
     });
     expect(adminMembershipAttempt.status).toBe(400);
     expect(memberProject.status).toBe(200);
@@ -620,6 +616,101 @@ describe("backend foundation", () => {
       before: { memberIds: [] },
       after: { memberIds: [member.id] },
     });
+  });
+
+  it("searches admin membership pages and incrementally adds and removes members", async () => {
+    const adminCandidate = await registerUser("membership-admin@example.com");
+    const owner = await registerUser("membership-owner@example.com");
+    const member = await registerUser("membership-member@example.com");
+    const project = await createProject(owner.token);
+    const bootstrapToken = "membership-admin-bootstrap-token-with-32-chars";
+    const bootstrapApp = createApp({
+      config: { ...config, adminBootstrapToken: bootstrapToken },
+      storage,
+      users: storage,
+    });
+
+    await request(bootstrapApp)
+      .post("/api/v1/users/bootstrap-admin")
+      .set("Authorization", `Bearer ${adminCandidate.token}`)
+      .send({ token: bootstrapToken });
+    const adminToken = await login("membership-admin@example.com");
+
+    const projectSearch = await request(bootstrapApp)
+      .get("/api/v1/admin/project-access?page=1&limit=10&search=Test%20project")
+      .set("Authorization", `Bearer ${adminToken}`);
+    const userSearch = await request(bootstrapApp)
+      .get(
+        "/api/v1/admin/users?page=1&limit=10&search=membership-member%40example.com",
+      )
+      .set("Authorization", `Bearer ${adminToken}`);
+    const membersBefore = await request(bootstrapApp)
+      .get(`/api/v1/admin/project-access/${project.id}/members?page=1&limit=10`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    const memberAdded = await request(bootstrapApp)
+      .post(`/api/v1/admin/project-access/${project.id}/members`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ memberId: member.id });
+    const membersAfterAdd = await request(bootstrapApp)
+      .get(
+        `/api/v1/admin/project-access/${project.id}/members?search=membership-member`,
+      )
+      .set("Authorization", `Bearer ${adminToken}`);
+    const memberLogin = await login("membership-member@example.com");
+    const projectAfterFreshLogin = await request(bootstrapApp)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${memberLogin}`);
+    const memberRemoved = await request(bootstrapApp)
+      .delete(`/api/v1/admin/project-access/${project.id}/members/${member.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    const projectAfterRemoval = await request(bootstrapApp)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${memberLogin}`);
+    const auditEvents = await storage.listAuditEvents(1, 100);
+
+    expect(projectSearch.status).toBe(200);
+    expect(projectSearch.body.data.items).toContainEqual(
+      expect.objectContaining({ id: project.id, memberCount: 0 }),
+    );
+    expect(userSearch.status).toBe(200);
+    expect(userSearch.body.data.items).toEqual([
+      expect.objectContaining({
+        id: member.id,
+        email: "membership-member@example.com",
+      }),
+    ]);
+    expect(membersBefore.body.data).toMatchObject({
+      items: [],
+      page: 1,
+      total: 0,
+    });
+    expect(memberAdded.status).toBe(200);
+    expect(memberAdded.body.data).toMatchObject({
+      projectId: project.id,
+      memberId: member.id,
+      memberCount: 1,
+      alreadyMember: false,
+    });
+    expect(membersAfterAdd.body.data.items).toEqual([
+      expect.objectContaining({
+        id: member.id,
+        email: "membership-member@example.com",
+      }),
+    ]);
+    expect(projectAfterFreshLogin.status).toBe(200);
+    expect(memberRemoved.body.data).toMatchObject({
+      memberId: member.id,
+      memberCount: 0,
+      removed: true,
+    });
+    expect(projectAfterRemoval.status).toBe(404);
+    expect(
+      auditEvents.items.filter(
+        (event) =>
+          event.action === "project.members_changed" &&
+          event.actorUserId === adminCandidate.id,
+      ),
+    ).toHaveLength(2);
   });
 
   it("creates one-time admin invitations and activates the account only after password setup", async () => {
@@ -668,12 +759,10 @@ describe("backend foundation", () => {
         password: "invited-owner-password-12",
         confirmPassword: "invited-owner-password-12",
       });
-    const loginResponse = await request(app)
-      .post("/api/v1/auth/login")
-      .send({
-        email: "invited-owner@example.com",
-        password: "invited-owner-password-12",
-      });
+    const loginResponse = await request(app).post("/api/v1/auth/login").send({
+      email: "invited-owner@example.com",
+      password: "invited-owner-password-12",
+    });
     const auditEvents = await storage.listAuditEvents(1, 100);
 
     expect(invitation.status).toBe(201);
@@ -723,8 +812,12 @@ describe("backend foundation", () => {
 
   it("enforces role-scoped project resources and keeps delivery feedback separate from approval", async () => {
     const owner = await registerUser("resource-owner@example.com");
-    const productOwner = await registerUser("resource-product-owner@example.com");
-    const deliveryLead = await registerUser("resource-delivery-lead@example.com");
+    const productOwner = await registerUser(
+      "resource-product-owner@example.com",
+    );
+    const deliveryLead = await registerUser(
+      "resource-delivery-lead@example.com",
+    );
     await storage.updateUserRoles(productOwner.id, ["product_owner"]);
     await storage.updateUserRoles(deliveryLead.id, ["delivery_lead"]);
     const productOwnerToken = await login("resource-product-owner@example.com");
@@ -780,17 +873,48 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${deliveryLeadToken}`)
       .send({ decision: "approved" });
     const feedback = await request(app)
-      .post(`/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback`)
+      .post(
+        `/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback`,
+      )
       .set("Authorization", `Bearer ${deliveryLeadToken}`)
       .send({ comments: "Schedule a feasibility review." });
+    const productOwnerDecision = await request(app)
+      .patch(`/api/v1/approvals/${deliveryApproval.body.data.id}`)
+      .set("Authorization", `Bearer ${productOwnerToken}`)
+      .send({
+        decision: "approved",
+        reviewerComments: "The risk is acceptable with mitigation.",
+      });
+    const feedbackAfterDecision = await request(app)
+      .post(
+        `/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback`,
+      )
+      .set("Authorization", `Bearer ${deliveryLeadToken}`)
+      .send({ comments: "Monitor this risk during rollout." });
+    const decidedDeliveryQueue = await request(app)
+      .get(`/api/v1/projects/${project.id}/delivery-reviews?decision=approved`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
+    const deliveryHistoryForAnalyst = await request(app)
+      .get(`/api/v1/approvals/artifact/risk/${deliveryArtifact.body.data.id}`)
+      .set("Authorization", `Bearer ${owner.token}`);
+    const deliveryHistoryForOwner = await request(app)
+      .get(`/api/v1/approvals/artifact/risk/${deliveryArtifact.body.data.id}`)
+      .set("Authorization", `Bearer ${productOwnerToken}`);
+    const forbiddenBusinessHistory = await request(app)
+      .get(`/api/v1/approvals/artifact/story/${businessArtifact.body.data.id}`)
+      .set("Authorization", `Bearer ${deliveryLeadToken}`);
     const approvalAfterFeedback = await request(app)
       .get(`/api/v1/approvals/${deliveryApproval.body.data.id}`)
       .set("Authorization", `Bearer ${productOwnerToken}`);
     const ownerArtifactVersions = await request(app)
-      .get(`/api/v1/artifacts/${deliveryArtifact.body.data.id}/versions?type=risk`)
+      .get(
+        `/api/v1/artifacts/${deliveryArtifact.body.data.id}/versions?type=risk`,
+      )
       .set("Authorization", `Bearer ${productOwnerToken}`);
     const leadArtifactVersions = await request(app)
-      .get(`/api/v1/artifacts/${businessArtifact.body.data.id}/versions?type=story`)
+      .get(
+        `/api/v1/artifacts/${businessArtifact.body.data.id}/versions?type=story`,
+      )
       .set("Authorization", `Bearer ${deliveryLeadToken}`);
 
     expect(membership.status).toBe(200);
@@ -822,12 +946,47 @@ describe("backend foundation", () => {
     expect(deliveryApprovalDetail.status).toBe(403);
     expect(deliveryDecision.status).toBe(403);
     expect(feedback.status).toBe(200);
+    expect(productOwnerDecision.status).toBe(200);
+    expect(feedbackAfterDecision.status).toBe(200);
+    expect(forbiddenBusinessHistory.status).toBe(403);
+    expect(decidedDeliveryQueue.body.data.items).toEqual([
+      expect.objectContaining({
+        approval: expect.objectContaining({
+          id: deliveryApproval.body.data.id,
+          decision: "approved",
+        }),
+      }),
+    ]);
+    for (const history of [
+      deliveryHistoryForAnalyst,
+      deliveryHistoryForOwner,
+    ]) {
+      expect(history.status).toBe(200);
+      expect(history.body.data.items).toEqual([
+        expect.objectContaining({
+          reviewerComments: "The risk is acceptable with mitigation.",
+          deliveryFeedback: [
+            expect.objectContaining({
+              comments: "Schedule a feasibility review.",
+            }),
+            expect.objectContaining({
+              comments: "Monitor this risk during rollout.",
+            }),
+          ],
+        }),
+      ]);
+    }
     expect(approvalAfterFeedback.body.data.approval).toMatchObject({
-      decision: "pending",
+      decision: "approved",
+      reviewerComments: "The risk is acceptable with mitigation.",
       deliveryFeedback: [
         expect.objectContaining({
           reviewerUserId: deliveryLead.id,
           comments: "Schedule a feasibility review.",
+        }),
+        expect.objectContaining({
+          reviewerUserId: deliveryLead.id,
+          comments: "Monitor this risk during rollout.",
         }),
       ],
     });
@@ -851,7 +1010,9 @@ describe("backend foundation", () => {
 
     expect(created.status).toBe(201);
     expect(created.body.data.status).toBe("active");
-    const projectOwner = await registerUser("template-project-owner@example.com");
+    const projectOwner = await registerUser(
+      "template-project-owner@example.com",
+    );
     const project = await request(app)
       .post("/api/v1/projects")
       .set("Authorization", `Bearer ${projectOwner.token}`)
@@ -889,14 +1050,15 @@ describe("backend foundation", () => {
     expect(jsonExport.headers["content-disposition"]).toContain(
       "audit-events.json",
     );
-    expect(jsonExport.body.map((event: { action: string }) => event.action))
-      .toEqual(
-        expect.arrayContaining([
-          "template.created",
-          "template.deactivated",
-          "audit.exported",
-        ]),
-      );
+    expect(
+      jsonExport.body.map((event: { action: string }) => event.action),
+    ).toEqual(
+      expect.arrayContaining([
+        "template.created",
+        "template.deactivated",
+        "audit.exported",
+      ]),
+    );
     expect(csvExport.headers["content-type"]).toContain("text/csv");
     expect(csvExport.text).toContain("audit.exported");
   });
@@ -1005,6 +1167,9 @@ describe("backend foundation", () => {
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
       .send({ decision: "approved", comments: "Reviewed." });
+    const requirementReviewHistory = await request(app)
+      .get(`/api/v1/approvals/artifact/requirement/${requirement.body.data.id}`)
+      .set("Authorization", `Bearer ${regularMember.token}`);
     const approvedQueue = await request(app)
       .get(`/api/v1/projects/${project.id}/approvals?decision=approved`)
       .set("Authorization", `Bearer ${reviewerLogin}`);
@@ -1019,6 +1184,7 @@ describe("backend foundation", () => {
         projectId: project.id,
         artifactType: "story",
         artifactId: artifact.body.data.id,
+        comments: "Please review the customer value.",
       });
     const artifactApprovalDetail = await request(app)
       .get(`/api/v1/approvals/${artifactApproval.body.data.id}`)
@@ -1040,8 +1206,18 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${reviewerLogin}`)
       .send({
         decision: "changes_requested",
-        comments: "Clarify the outcome.",
+        reviewerComments: "Clarify the outcome.",
       });
+    const storyReviewHistory = await request(app)
+      .get(`/api/v1/approvals/artifact/story/${artifact.body.data.id}`)
+      .set("Authorization", `Bearer ${regularMember.token}`);
+    const implementationPlan = await request(app)
+      .post(`/api/v1/projects/${project.id}/artifacts`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ type: "implementation_plan", title: "Rollout plan" });
+    const implementationPlanFilter = await request(app)
+      .get(`/api/v1/projects/${project.id}/artifacts?type=implementation_plan`)
+      .set("Authorization", `Bearer ${owner.token}`);
     const updatedRequirements = await request(app)
       .get(`/api/v1/projects/${project.id}/requirements`)
       .set("Authorization", `Bearer ${owner.token}`);
@@ -1104,12 +1280,32 @@ describe("backend foundation", () => {
     expect(decision.body.data.decision).toBe("approved");
     expect(decision.body.data).toMatchObject({
       reviewerUserId: reviewer.id,
-      comments: "Reviewed.",
+      comments: "",
+      reviewerComments: "Reviewed.",
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     });
+    expect(requirementReviewHistory.body.data.items).toEqual([
+      expect.objectContaining({
+        comments: "",
+        reviewerComments: "Reviewed.",
+      }),
+    ]);
     expect(duplicateDecision.status).toBe(409);
     expect(artifactDecision.status).toBe(200);
+    expect(storyReviewHistory.body.data.items).toEqual([
+      expect.objectContaining({
+        comments: "Please review the customer value.",
+        reviewerComments: "Clarify the outcome.",
+      }),
+    ]);
+    expect(implementationPlan.status).toBe(201);
+    expect(implementationPlanFilter.body.data.items).toEqual([
+      expect.objectContaining({
+        id: implementationPlan.body.data.id,
+        type: "implementation_plan",
+      }),
+    ]);
     expect(artifactApprovalDetail.status).toBe(200);
     expect(artifactApprovalDetail.body.data.resource).toMatchObject({
       id: artifact.body.data.id,
@@ -1246,16 +1442,31 @@ describe("backend foundation", () => {
     expect(
       openApiDocument.paths["/projects/{id}/export"].get.responses,
     ).toHaveProperty(String(projectExport.status));
-    expect(openApiDocument.paths["/admin/users/invitations"].post).toBeDefined();
+    expect(
+      openApiDocument.paths["/admin/users/invitations"].post,
+    ).toBeDefined();
     expect(openApiDocument.paths["/admin/project-access"].get).toBeDefined();
     expect(
+      openApiDocument.paths["/admin/project-access/{id}/members"].get,
+    ).toBeDefined();
+    expect(
+      openApiDocument.paths["/admin/project-access/{id}/members"].post,
+    ).toBeDefined();
+    expect(
       openApiDocument.paths["/admin/project-access/{id}/members"].put,
+    ).toBeDefined();
+    expect(
+      openApiDocument.paths["/admin/project-access/{id}/members/{memberId}"]
+        .delete,
     ).toBeDefined();
     expect(
       openApiDocument.paths["/projects/{projectId}/delivery-reviews"].get,
     ).toBeDefined();
     expect(
       openApiDocument.paths["/approvals/{id}/delivery-feedback"].post,
+    ).toBeDefined();
+    expect(
+      openApiDocument.paths["/approvals/artifact/{type}/{artifactId}"].get,
     ).toBeDefined();
   });
 });

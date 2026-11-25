@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import {
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { ErrorPanel } from "../../components/ui/ErrorPanel";
@@ -9,28 +14,36 @@ import { userRoles } from "../auth/auth.schemas";
 import { hasPermission, rolePermissions } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import {
+  addAdminProjectMember,
   inviteAdminUser,
-  listAdminProjectAccess,
-  updateAdminProjectMembers,
+  listAdminProjectAccessPage,
+  listAdminProjectMembers,
+  removeAdminProjectMember,
+  searchAdminUsers,
 } from "./admin-api";
 import type { AdminUser, ProjectAccess, UserRole } from "./admin.schemas";
 import { getApiErrorPresentation } from "../../lib/api-client";
+import {
+  ChevronLeft,
+  ChevronRight,
+  UserRoundPlus,
+  UserRoundX,
+} from "lucide-react";
 
-interface AdminAccessManagementProps {
-  users: AdminUser[];
-  usersReady: boolean;
-}
+const projectAccessQueryKey = (
+  userId: string,
+  page: number,
+  search: string,
+) => ["admin", userId, "project-access", { page, search }];
 
-const projectAccessQueryKey = (userId: string) => [
+const projectAccessRootQueryKey = (userId: string) => [
   "admin",
   userId,
   "project-access",
 ];
+const membershipPageSize = 10;
 
-export function AdminAccessManagement({
-  users,
-  usersReady,
-}: AdminAccessManagementProps) {
+export function AdminAccessManagement() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const userId = session?.user.id ?? "anonymous";
@@ -43,14 +56,22 @@ export function AdminAccessManagement({
   const [inviteRoles, setInviteRoles] = useState<UserRole[]>([
     "business_analyst",
   ]);
-  const [memberDrafts, setMemberDrafts] = useState<Record<string, string[]>>(
-    {},
-  );
   const [copyError, setCopyError] = useState("");
+  const [projectSearch, setProjectSearch] = useState("");
+  const [projectPage, setProjectPage] = useState(1);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
 
   const projectAccessQuery = useQuery({
-    queryKey: projectAccessQueryKey(userId),
-    queryFn: ({ signal }) => listAdminProjectAccess(signal),
+    queryKey: projectAccessQueryKey(userId, projectPage, projectSearch),
+    queryFn: ({ signal }) =>
+      listAdminProjectAccessPage(
+        {
+          page: projectPage,
+          limit: membershipPageSize,
+          search: projectSearch,
+        },
+        signal,
+      ),
     enabled: canManageProjectAccess,
   });
   const invitationMutation = useMutation({
@@ -69,31 +90,6 @@ export function AdminAccessManagement({
     },
     retry: false,
   });
-  const membershipMutation = useMutation({
-    mutationFn: ({
-      projectId,
-      memberIds,
-    }: {
-      projectId: string;
-      memberIds: string[];
-    }) => updateAdminProjectMembers(projectId, memberIds),
-    onSuccess: async (project) => {
-      setMemberDrafts((drafts) => ({
-        ...drafts,
-        [project.id]: project.memberIds,
-      }));
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: projectAccessQueryKey(userId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["admin", userId, "audit"],
-        }),
-      ]);
-    },
-    retry: false,
-  });
-
   const invitationError = invitationMutation.isError
     ? getApiErrorPresentation(
         invitationMutation.error,
@@ -106,19 +102,14 @@ export function AdminAccessManagement({
         "Project access could not be loaded.",
       )
     : undefined;
-  const membershipError = membershipMutation.isError
-    ? getApiErrorPresentation(
-        membershipMutation.error,
-        "Project membership could not be updated.",
-      )
-    : undefined;
-  const assignableUsers = users.filter(
-    (user) =>
-      user.active && user.roles.length > 0 && !user.roles.includes("admin"),
-  );
-  const assignableUserIds = new Set(assignableUsers.map((user) => user.id));
   const projectAccess = projectAccessQuery.data?.items ?? [];
-  const userById = new Map(users.map((user) => [user.id, user]));
+  const selectedProject = projectAccess.find(
+    (project) => project.id === selectedProjectId,
+  );
+  const projectPageCount = Math.max(
+    1,
+    Math.ceil((projectAccessQuery.data?.total ?? 0) / membershipPageSize),
+  );
 
   const updateInviteRole = (role: UserRole, checked: boolean) => {
     invitationMutation.reset();
@@ -303,48 +294,110 @@ export function AdminAccessManagement({
               title="Project access unavailable"
             />
           ) : null}
-          {membershipError ? (
-            <ErrorPanel
-              message={membershipError.message}
-              requestId={membershipError.requestId}
-              title="Membership update unsuccessful"
+          <label className="field">
+            <span className="field__label">Search projects</span>
+            <input
+              className="field__control"
+              onChange={(event) => {
+                setProjectSearch(event.currentTarget.value);
+                setProjectPage(1);
+                setSelectedProjectId("");
+              }}
+              placeholder="Project name or ID"
+              type="search"
+              value={projectSearch}
             />
-          ) : null}
-          {membershipMutation.isSuccess ? (
-            <p className="admin-success" role="status">
-              Project membership was updated and audited.
-            </p>
-          ) : null}
+          </label>
           {projectAccess.map((project) => (
-            <ProjectMembershipEditor
+            <Card
+              as="article"
+              className="admin-project-access-card"
               key={project.id}
-              assignableUsers={assignableUsers}
-              assignableUserIds={assignableUserIds}
-              canSave={usersReady}
-              membershipMutationPending={membershipMutation.isPending}
-              onChange={(memberIds) =>
-                setMemberDrafts((drafts) => ({
-                  ...drafts,
-                  [project.id]: memberIds,
-                }))
-              }
-              onSave={(memberIds) =>
-                membershipMutation.mutate({
-                  projectId: project.id,
-                  memberIds,
+            >
+              <div className="admin-section__heading">
+                <div>
+                  <h3>{project.name}</h3>
+                  <p>
+                    {project.status === "active" ? "Active" : "Archived"} ·{" "}
+                    {project.memberCount}{" "}
+                    {project.memberCount === 1 ? "member" : "members"}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setSelectedProjectId(project.id)}
+                  size="small"
+                  type="button"
+                  variant={
+                    selectedProjectId === project.id ? "secondary" : "primary"
+                  }
+                >
+                  {selectedProjectId === project.id
+                    ? "Managing members"
+                    : "Manage members"}
+                </Button>
+              </div>
+            </Card>
+          ))}
+          {!projectAccessQuery.isPending &&
+          projectAccessQuery.data?.total === 0 ? (
+            <Card>
+              <p>No projects match this search.</p>
+            </Card>
+          ) : null}
+          {projectAccessQuery.data && projectAccessQuery.data.total > 0 ? (
+            <div
+              aria-label="Project membership pagination"
+              className="admin-project-access-pagination"
+              role="group"
+            >
+              <Button
+                disabled={projectPage <= 1 || projectAccessQuery.isFetching}
+                leadingIcon={<ChevronLeft aria-hidden="true" size={15} />}
+                onClick={() => {
+                  setProjectPage((page) => page - 1);
+                  setSelectedProjectId("");
+                }}
+                size="small"
+                type="button"
+                variant="secondary"
+              >
+                Previous
+              </Button>
+              <span>
+                Page {projectPage} of {projectPageCount} ·{" "}
+                {projectAccessQuery.data.total} projects
+              </span>
+              <Button
+                disabled={
+                  projectPage >= projectPageCount ||
+                  projectAccessQuery.isFetching
+                }
+                onClick={() => {
+                  setProjectPage((page) => page + 1);
+                  setSelectedProjectId("");
+                }}
+                size="small"
+                trailingIcon={<ChevronRight aria-hidden="true" size={15} />}
+                type="button"
+                variant="secondary"
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
+          {selectedProject ? (
+            <ProjectMembershipManager
+              key={selectedProject.id}
+              onUpdated={() =>
+                queryClient.invalidateQueries({
+                  queryKey: projectAccessRootQueryKey(userId),
                 })
               }
-              project={project}
-              selectedMemberIds={(
-                memberDrafts[project.id] ?? project.memberIds
-              ).filter((memberId) => assignableUserIds.has(memberId))}
-              ownerEmail={userById.get(project.ownerUserId)?.email}
+              project={selectedProject}
             />
-          ))}
+          ) : null}
           {projectAccessQuery.data?.total === 0 ? (
-            <Card>
-              <p>No projects are available for membership management.</p>
-            </Card>
+            <p className="admin-form-hint">Search by project name or ID.</p>
           ) : null}
         </section>
       ) : null}
@@ -384,78 +437,350 @@ export function AdminAccessManagement({
   );
 }
 
-function ProjectMembershipEditor({
+function ProjectMembershipManager({
   project,
-  assignableUsers,
-  assignableUserIds,
-  canSave,
-  membershipMutationPending,
-  selectedMemberIds,
-  ownerEmail,
-  onChange,
-  onSave,
+  onUpdated,
 }: {
   project: ProjectAccess;
-  assignableUsers: AdminUser[];
-  assignableUserIds: Set<string>;
-  canSave: boolean;
-  membershipMutationPending: boolean;
-  selectedMemberIds: string[];
-  ownerEmail?: string;
-  onChange: (memberIds: string[]) => void;
-  onSave: (memberIds: string[]) => void;
+  onUpdated: () => void;
 }) {
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const userId = session?.user.id ?? "anonymous";
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberPage, setMemberPage] = useState(1);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [candidatePage, setCandidatePage] = useState(1);
+  const [notice, setNotice] = useState("");
+  const membersQuery = useQuery({
+    queryKey: [
+      "admin",
+      userId,
+      "project-members",
+      project.id,
+      { page: memberPage, search: memberSearch },
+    ],
+    queryFn: ({ signal }) =>
+      listAdminProjectMembers(
+        project.id,
+        { page: memberPage, limit: membershipPageSize, search: memberSearch },
+        signal,
+      ),
+  });
+  const candidatesQuery = useQuery({
+    queryKey: [
+      "admin",
+      userId,
+      "member-candidates",
+      { page: candidatePage, search: candidateSearch },
+    ],
+    queryFn: ({ signal }) =>
+      searchAdminUsers(
+        {
+          page: candidatePage,
+          limit: membershipPageSize,
+          search: candidateSearch,
+        },
+        signal,
+      ),
+    enabled: candidateSearch.trim().length >= 2,
+  });
+  const invalidateMembershipData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["admin", userId, "project-members", project.id],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["admin", userId, "member-candidates"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["admin", userId, "audit"],
+      }),
+    ]);
+    onUpdated();
+  };
+  const addMutation = useMutation({
+    mutationFn: ({ memberId }: { memberId: string; email: string }) =>
+      addAdminProjectMember(project.id, memberId),
+    onSuccess: async (result, variables) => {
+      setNotice(
+        result.alreadyMember
+          ? `${variables.email} is already a member of ${project.name}.`
+          : `${variables.email} was added to ${project.name}.`,
+      );
+      await invalidateMembershipData();
+    },
+    retry: false,
+  });
+  const removeMutation = useMutation({
+    mutationFn: ({ memberId }: { memberId: string; email: string }) =>
+      removeAdminProjectMember(project.id, memberId),
+    onSuccess: async (_result, variables) => {
+      setNotice(`${variables.email} was removed from ${project.name}.`);
+      setMemberPage(1);
+      await invalidateMembershipData();
+    },
+    retry: false,
+  });
+  const membersPageCount = Math.max(
+    1,
+    Math.ceil((membersQuery.data?.total ?? 0) / membershipPageSize),
+  );
+  const candidatesPageCount = Math.max(
+    1,
+    Math.ceil((candidatesQuery.data?.total ?? 0) / membershipPageSize),
+  );
+  const membershipError = addMutation.error ?? removeMutation.error;
+  const membershipErrorPresentation = membershipError
+    ? getApiErrorPresentation(
+        membershipError,
+        "Project membership could not be updated.",
+      )
+    : undefined;
+
   return (
     <Card as="article" className="admin-project-access-card">
       <div className="admin-section__heading">
         <div>
-          <h3>{project.name}</h3>
           <p>
-            {project.status === "active" ? "Active" : "Archived"} · Owner:{" "}
-            {ownerEmail ?? project.ownerUserId}
+            Managing members for <strong>{project.name}</strong>. The project
+            owner remains unchanged, and administrators do not receive project
+            content access.
           </p>
         </div>
       </div>
-      <label className="field">
-        <span className="field__label">Project members</span>
-        <select
-          aria-label={`Members for ${project.name}`}
-          className="field__control"
-          disabled={membershipMutationPending}
-          multiple
-          onChange={(event) => {
-            const memberIds = Array.from(
-              event.currentTarget.selectedOptions,
-              (option) => option.value,
-            );
-            onChange(memberIds);
-          }}
-          size={Math.min(Math.max(assignableUsers.length, 2), 8)}
-          value={selectedMemberIds}
-        >
-          {assignableUsers.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.email}
-            </option>
-          ))}
-        </select>
-      </label>
-      {project.memberIds.some(
-        (memberId) => !assignableUserIds.has(memberId),
-      ) ? (
-        <p className="admin-form-hint">
-          Inactive or administrator memberships are not assignable and will be
-          removed when you save.
+      <p className="admin-form-hint">
+        {project.memberCount} current{" "}
+        {project.memberCount === 1 ? "member" : "members"}.
+      </p>
+      {notice ? (
+        <p className="admin-success" role="status">
+          {notice}
         </p>
       ) : null}
+      {membershipErrorPresentation ? (
+        <ErrorPanel
+          message={membershipErrorPresentation.message}
+          requestId={membershipErrorPresentation.requestId}
+          title="Membership update unsuccessful"
+        />
+      ) : null}
+      <label className="field">
+        <span className="field__label">Find current members</span>
+        <input
+          className="field__control"
+          onChange={(event) => {
+            setMemberSearch(event.currentTarget.value);
+            setMemberPage(1);
+          }}
+          placeholder="Search by email or user ID"
+          type="search"
+          value={memberSearch}
+        />
+      </label>
+      {membersQuery.isPending ? (
+        <LoadingSkeleton lines={2} />
+      ) : membersQuery.isError ? (
+        <ErrorPanel
+          message={
+            getApiErrorPresentation(
+              membersQuery.error,
+              "Current project members could not be loaded.",
+            ).message
+          }
+          title="Members unavailable"
+        />
+      ) : membersQuery.data?.items.length ? (
+        <ul className="admin-project-member-list">
+          {membersQuery.data.items.map((member) => (
+            <ProjectMemberRow
+              key={member.id}
+              member={member}
+              onRemove={() => {
+                setNotice("");
+                removeMutation.mutate({
+                  memberId: member.id,
+                  email: member.email,
+                });
+              }}
+              pending={removeMutation.isPending}
+              removable
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="admin-form-hint">
+          {memberSearch
+            ? "No current members match this search."
+            : "This project has no members yet."}
+        </p>
+      )}
+      {membersQuery.data && membersQuery.data.total > 0 ? (
+        <MembershipPagination
+          label="Current member pagination"
+          page={memberPage}
+          pageCount={membersPageCount}
+          pending={membersQuery.isFetching}
+          setPage={setMemberPage}
+          total={membersQuery.data.total}
+        />
+      ) : null}
+      <label className="field">
+        <span className="field__label">Find users to add</span>
+        <input
+          className="field__control"
+          onChange={(event) => {
+            setCandidateSearch(event.currentTarget.value);
+            setCandidatePage(1);
+            setNotice("");
+          }}
+          placeholder="Type at least two characters"
+          type="search"
+          value={candidateSearch}
+        />
+      </label>
+      {candidateSearch.trim().length < 2 ? (
+        <p className="admin-form-hint">
+          Enter at least two characters to search.
+        </p>
+      ) : candidatesQuery.isPending ? (
+        <LoadingSkeleton lines={2} />
+      ) : candidatesQuery.isError ? (
+        <ErrorPanel
+          message={
+            getApiErrorPresentation(
+              candidatesQuery.error,
+              "Users could not be searched.",
+            ).message
+          }
+          title="User search unavailable"
+        />
+      ) : candidatesQuery.data?.items.length ? (
+        <ul className="admin-project-member-list">
+          {candidatesQuery.data.items.map((candidate) => {
+            const eligible =
+              candidate.active &&
+              candidate.roles.length > 0 &&
+              !candidate.roles.includes("admin") &&
+              candidate.id !== project.ownerUserId;
+            return (
+              <ProjectMemberRow
+                key={candidate.id}
+                actionLabel="Add"
+                icon={<UserRoundPlus aria-hidden="true" size={15} />}
+                member={candidate}
+                onRemove={() => {
+                  setNotice("");
+                  addMutation.mutate({
+                    memberId: candidate.id,
+                    email: candidate.email,
+                  });
+                }}
+                pending={addMutation.isPending}
+                removable={eligible}
+              />
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="admin-form-hint">No users match this search.</p>
+      )}
+      {candidatesQuery.data && candidatesQuery.data.total > 0 ? (
+        <MembershipPagination
+          label="User search pagination"
+          page={candidatePage}
+          pageCount={candidatesPageCount}
+          pending={candidatesQuery.isFetching}
+          setPage={setCandidatePage}
+          total={candidatesQuery.data.total}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function ProjectMemberRow({
+  member,
+  onRemove,
+  pending,
+  removable,
+  actionLabel = "Remove",
+  icon = <UserRoundX aria-hidden="true" size={15} />,
+}: {
+  member: Pick<AdminUser, "id" | "email" | "roles" | "active">;
+  onRemove: () => void;
+  pending: boolean;
+  removable: boolean;
+  actionLabel?: string;
+  icon?: ReactNode;
+}) {
+  return (
+    <li className="admin-project-member">
+      <div>
+        <strong>{member.email}</strong>
+        <span>
+          {member.roles.map(getRoleLabel).join(", ") || "No role"} ·{" "}
+          {member.active ? "Active" : "Inactive"}
+        </span>
+      </div>
       <Button
-        disabled={!canSave || membershipMutationPending}
-        onClick={() => onSave(selectedMemberIds)}
+        disabled={!removable || pending}
+        leadingIcon={icon}
+        onClick={onRemove}
         size="small"
         type="button"
+        variant={actionLabel === "Remove" ? "danger" : "secondary"}
       >
-        Save membership
+        {actionLabel}
       </Button>
-    </Card>
+    </li>
+  );
+}
+
+function MembershipPagination({
+  label,
+  page,
+  pageCount,
+  pending,
+  setPage,
+  total,
+}: {
+  label: string;
+  page: number;
+  pageCount: number;
+  pending: boolean;
+  setPage: Dispatch<SetStateAction<number>>;
+  total: number;
+}) {
+  return (
+    <div
+      aria-label={label}
+      className="admin-project-access-pagination"
+      role="group"
+    >
+      <Button
+        disabled={page <= 1 || pending}
+        leadingIcon={<ChevronLeft aria-hidden="true" size={15} />}
+        onClick={() => setPage((current) => current - 1)}
+        size="small"
+        type="button"
+        variant="secondary"
+      >
+        Previous
+      </Button>
+      <span>
+        Page {page} of {pageCount} · {total} results
+      </span>
+      <Button
+        disabled={page >= pageCount || pending}
+        onClick={() => setPage((current) => current + 1)}
+        size="small"
+        trailingIcon={<ChevronRight aria-hidden="true" size={15} />}
+        type="button"
+        variant="secondary"
+      >
+        Next
+      </Button>
+    </div>
   );
 }

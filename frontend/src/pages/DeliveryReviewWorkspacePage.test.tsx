@@ -174,4 +174,121 @@ describe("DeliveryReviewWorkspacePage", () => {
     );
     queryClient.clear();
   });
+
+  it("allows feedback on an approved review without changing the decision", async () => {
+    let deliveryFeedback = [
+      {
+        reviewerUserId: "delivery-2",
+        comments: "Track the mitigation owner.",
+        createdAt: "2026-11-23T07:30:00.000Z",
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async (input: RequestInfo | URL, options?: RequestInit) => {
+          const url = String(input);
+          const method = options?.method ?? "GET";
+          let data: unknown;
+
+          if (url.endsWith("/auth/me")) {
+            data = { user };
+          } else if (url.endsWith("/projects/project-1")) {
+            data = project;
+          } else if (url.includes("/projects/project-1/delivery-reviews?")) {
+            data = {
+              items: [
+                {
+                  approval: {
+                    ...approval,
+                    decision: "approved",
+                    reviewerComments: "Proceed with a monitoring plan.",
+                    deliveryFeedback,
+                  },
+                  resource,
+                },
+              ],
+              page: 1,
+              limit: 12,
+              total: 1,
+            };
+          } else if (
+            url.endsWith("/approvals/approval-1/delivery-feedback") &&
+            method === "POST"
+          ) {
+            const body = JSON.parse(String(options?.body)) as {
+              comments: string;
+            };
+            deliveryFeedback = [
+              ...deliveryFeedback,
+              {
+                reviewerUserId: user.id,
+                comments: body.comments,
+                createdAt: "2026-11-23T08:00:00.000Z",
+              },
+            ];
+            data = {
+              ...approval,
+              decision: "approved",
+              reviewerComments: "Proceed with a monitoring plan.",
+              deliveryFeedback,
+            };
+          } else {
+            throw new Error(`Unexpected request: ${method} ${url}`);
+          }
+
+          return Response.json({
+            success: true,
+            data,
+            requestId: "decided-delivery-review-test",
+          });
+        },
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const userActions = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter
+            initialEntries={["/app/projects/project-1/delivery-reviews"]}
+          >
+            <Routes>
+              <Route
+                path="/app/projects/:projectId/delivery-reviews"
+                element={<DeliveryReviewWorkspacePage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await userActions.click(
+      await screen.findByRole("button", { name: /Implementation risk/ }),
+    );
+    expect(
+      await screen.findByText("Proceed with a monitoring plan."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Track the mitigation owner/)).toBeInTheDocument();
+    await userActions.type(
+      screen.getByRole("textbox", { name: "Delivery feedback" }),
+      "Add a contingency owner.",
+    );
+    await userActions.click(
+      screen.getByRole("button", { name: "Add feedback" }),
+    );
+
+    await waitFor(() => {
+      expect(deliveryFeedback).toHaveLength(2);
+      expect(deliveryFeedback[1]?.comments).toBe("Add a contingency owner.");
+      expect(
+        screen.getAllByText("Approved", { exact: true }).length,
+      ).toBeGreaterThan(0);
+    });
+    queryClient.clear();
+  });
 });

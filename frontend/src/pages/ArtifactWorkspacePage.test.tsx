@@ -10,7 +10,7 @@ import {
 import type { AuthUser } from "../features/auth/auth.schemas";
 import type { Artifact } from "../features/artifacts/artifact.schemas";
 import { ApiError } from "../lib/api-client";
-import { clearSession } from "../lib/auth-store";
+import { clearSession, setSession } from "../lib/auth-store";
 import { ArtifactWorkspaceRoute } from "./ArtifactWorkspacePage";
 
 const apiMocks = vi.hoisted(() => ({
@@ -244,6 +244,81 @@ describe("artifact workspace", () => {
       within(dialog).getByText("Show version 1 snapshot"),
     );
     expect(within(dialog).getByText("Earlier story")).toBeInTheDocument();
+  });
+
+  it("requests implementation-plan artifacts using the server-side type filter", async () => {
+    const userActions = userEvent.setup();
+    const implementationPlan = makeArtifact("plan-1", {
+      type: "implementation_plan",
+      title: "Recovery implementation plan",
+    });
+    apiMocks.listArtifacts.mockResolvedValue({
+      items: [implementationPlan],
+      page: 1,
+      limit: 12,
+      total: 1,
+    });
+    renderWorkspace();
+
+    await userActions.selectOptions(
+      await screen.findByRole("combobox", {
+        name: "Filter artifacts by type",
+      }),
+      "implementation_plan",
+    );
+
+    expect(apiMocks.listArtifacts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "implementation_plan" }),
+    );
+    expect(
+      await screen.findByText("Recovery implementation plan"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows submitter notes and Product Owner feedback in artifact review history", async () => {
+    const userActions = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        success: true,
+        data: {
+          items: [
+            {
+              id: "approval-1",
+              projectId: "project-1",
+              artifactType: "story",
+              artifactId: "artifact-1",
+              submittedByUserId: "user-1",
+              reviewerUserId: "owner-1",
+              decision: "changes_requested",
+              comments: "Please review the user outcome.",
+              reviewerComments: "Clarify the recovery success criteria.",
+              deliveryFeedback: [],
+              createdAt: "2026-03-04T05:06:07.000Z",
+              updatedAt: "2026-03-04T05:06:07.000Z",
+            },
+          ],
+        },
+        requestId: "artifact-review-history-test",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setSession({ accessToken: "test-token", user });
+    renderWorkspace();
+
+    await userActions.click(
+      await screen.findByRole("button", { name: /Recover account access/ }),
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(
+      await within(dialog).findByText(/Please review the user outcome\./),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/Clarify the recovery success criteria\./),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/approvals/artifact/story/artifact-1",
+      expect.any(Object),
+    );
   });
 
   it("creates an artifact draft with structured data and requirement links", async () => {

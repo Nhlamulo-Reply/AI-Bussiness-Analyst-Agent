@@ -23,6 +23,7 @@ export const approvalSchema = z
     reviewerUserId: z.string().min(1).optional(),
     decision: approvalStatusSchema,
     comments: z.string().trim().max(4000),
+    reviewerComments: z.string().trim().max(4000).optional(),
     deliveryFeedback: z
       .array(
         z
@@ -71,6 +72,10 @@ export const approvalDetailSchema = z
   })
   .strict();
 
+export const approvalHistorySchema = z
+  .object({ items: z.array(approvalSchema) })
+  .strict();
+
 export const approvalDecisionSchema = z.enum([
   "approved",
   "rejected",
@@ -80,7 +85,7 @@ export const approvalDecisionSchema = z.enum([
 export const decideApprovalInputSchema = z
   .object({
     decision: approvalDecisionSchema,
-    comments: z.string().trim().max(4000),
+    reviewerComments: z.string().trim().max(4000),
   })
   .strict();
 
@@ -95,6 +100,7 @@ export const createApprovalInputSchema = z
 
 export type Approval = z.infer<typeof approvalSchema>;
 export type ApprovalPage = z.infer<typeof approvalPageSchema>;
+export type ApprovalHistory = z.infer<typeof approvalHistorySchema>;
 export type DeliveryReviewItem = z.infer<typeof deliveryReviewItemSchema>;
 export type DeliveryReviewPage = z.infer<typeof deliveryReviewPageSchema>;
 export type ApprovalDetail = z.infer<typeof approvalDetailSchema>;
@@ -103,3 +109,24 @@ export type ApprovalStatus = z.infer<typeof approvalStatusSchema>;
 export type ApprovalDecision = z.infer<typeof approvalDecisionSchema>;
 export type DecideApprovalInput = z.infer<typeof decideApprovalInputSchema>;
 export type CreateApprovalInput = z.infer<typeof createApprovalInputSchema>;
+
+export function getApprovalSubmitterComments(approval: Approval): string {
+  if (
+    approval.reviewerComments === undefined &&
+    approval.decision !== "pending"
+  ) {
+    return "";
+  }
+  return approval.comments;
+}
+
+export function getApprovalReviewerComments(
+  approval: Approval,
+): string | undefined {
+  if (approval.reviewerComments !== undefined) {
+    return approval.reviewerComments || undefined;
+  }
+  return approval.decision === "pending"
+    ? undefined
+    : approval.comments || undefined;
+}

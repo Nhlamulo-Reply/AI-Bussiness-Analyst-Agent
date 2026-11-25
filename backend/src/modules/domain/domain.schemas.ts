@@ -186,6 +186,7 @@ export const approvalSchema = z
     reviewerUserId: z.string().min(1).optional(),
     decision: z.enum(["pending", "approved", "rejected", "changes_requested"]),
     comments: z.string().trim().max(4000),
+    reviewerComments: z.string().trim().max(4000).optional(),
     deliveryFeedback: z
       .array(
         z
@@ -449,8 +450,14 @@ export const patchApprovalBodySchema = z
   .object({
     decision: z.enum(["approved", "rejected", "changes_requested"]),
     comments: z.string().trim().max(4000).default(""),
+    reviewerComments: z.string().trim().max(4000).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      value.reviewerComments === undefined || value.comments.length === 0,
+    "Use either comments or reviewerComments, not both.",
+  );
 
 export const createDeliveryFeedbackBodySchema = z
   .object({

@@ -308,6 +308,23 @@ export const openApiDocument = {
             required: true,
             schema: { type: "string" },
           },
+          {
+            name: "type",
+            in: "query",
+            description: "Filter results by artifact type across all pages.",
+            schema: {
+              type: "string",
+              enum: [
+                "epic",
+                "story",
+                "acceptance_criteria",
+                "business_rule",
+                "risk",
+                "dependency",
+                "implementation_plan",
+              ],
+            },
+          },
         ],
         responses: ok,
       },
@@ -339,7 +356,8 @@ export const openApiDocument = {
     },
     "/projects/{id}/export": {
       get: {
-        summary: "Export project data as JSON, Markdown, or CSV (Business Analyst only)",
+        summary:
+          "Export project data as JSON, Markdown, or CSV (Business Analyst only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -359,7 +377,8 @@ export const openApiDocument = {
     },
     "/projects/{projectId}/requirements": {
       get: {
-        summary: "List project requirements (Business Analyst or Product Owner)",
+        summary:
+          "List project requirements (Business Analyst or Product Owner)",
         security: bearerSecurity,
         parameters: [
           {
@@ -442,7 +461,7 @@ export const openApiDocument = {
     "/projects/{projectId}/delivery-reviews": {
       get: {
         summary:
-          "List pending risk, dependency, and implementation-plan reviews (Delivery Lead only)",
+          "List all risk, dependency, and implementation-plan reviews, including decided reviews (Delivery Lead only)",
         security: bearerSecurity,
         parameters: [
           {
@@ -464,7 +483,9 @@ export const openApiDocument = {
         ],
         responses: {
           ...ok,
-          "200": { description: "Paginated delivery review records and artifacts" },
+          "200": {
+            description: "Paginated delivery review records and artifacts",
+          },
           "403": { description: "Delivery Lead role required" },
           "404": { description: "Project not found or inaccessible" },
         },
@@ -644,7 +665,15 @@ export const openApiDocument = {
               type: "string",
               enum: ["approved", "rejected", "changes_requested"],
             },
-            comments: { type: "string" },
+            reviewerComments: {
+              type: "string",
+              description:
+                "Product Owner feedback, stored separately from submitter comments. The legacy comments field remains accepted.",
+            },
+            comments: {
+              type: "string",
+              description: "Legacy alias for reviewerComments.",
+            },
           },
           additionalProperties: false,
         }),
@@ -657,10 +686,48 @@ export const openApiDocument = {
         },
       },
     },
+    "/approvals/artifact/{type}/{artifactId}": {
+      get: {
+        summary:
+          "List review history for an artifact the current user can access",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "type",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+              enum: [
+                "requirement",
+                "epic",
+                "story",
+                "acceptance_criteria",
+                "business_rule",
+                "risk",
+                "dependency",
+                "implementation_plan",
+              ],
+            },
+          },
+          {
+            name: "artifactId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          ...ok,
+          "403": { description: "Artifact review-history permission required" },
+          "404": { description: "Artifact not found or inaccessible" },
+        },
+      },
+    },
     "/approvals/{id}/delivery-feedback": {
       post: {
         summary:
-          "Add Delivery Lead feedback to a pending delivery artifact review without deciding it",
+          "Add Delivery Lead feedback to a delivery artifact review without changing its decision",
         security: bearerSecurity,
         parameters: [
           {
@@ -673,20 +740,24 @@ export const openApiDocument = {
         requestBody: jsonBody({
           type: "object",
           required: ["comments"],
-          properties: { comments: { type: "string", minLength: 1, maxLength: 4000 } },
+          properties: {
+            comments: { type: "string", minLength: 1, maxLength: 4000 },
+          },
           additionalProperties: false,
         }),
         responses: {
           ...ok,
-          "403": { description: "Delivery Lead role or delivery artifact required" },
+          "403": {
+            description: "Delivery Lead role or delivery artifact required",
+          },
           "404": { description: "Approval not found or inaccessible" },
-          "409": { description: "Delivery review is no longer pending" },
         },
       },
     },
     "/users/{id}/roles": {
       patch: {
-        summary: "Set canonical user roles (admin only; admin cannot be combined with project roles)",
+        summary:
+          "Set canonical user roles (admin only; admin cannot be combined with project roles)",
         security: bearerSecurity,
         parameters: [
           {
@@ -758,6 +829,12 @@ export const openApiDocument = {
             name: "limit",
             in: "query",
             schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+          {
+            name: "search",
+            in: "query",
+            description: "Search email addresses or user IDs.",
+            schema: { type: "string", maxLength: 200 },
           },
         ],
         responses: { ...ok, "403": { description: "Admin role required" } },
@@ -840,11 +917,74 @@ export const openApiDocument = {
             in: "query",
             schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
           },
+          {
+            name: "search",
+            in: "query",
+            description: "Search project names, IDs, or owner IDs.",
+            schema: { type: "string", maxLength: 200 },
+          },
         ],
         responses: { ...ok, "403": { description: "Admin role required" } },
       },
     },
     "/admin/project-access/{id}/members": {
+      get: {
+        summary:
+          "List a project's members with search and pagination (admin only)",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+          {
+            name: "search",
+            in: "query",
+            schema: { type: "string", maxLength: 200 },
+          },
+        ],
+        responses: {
+          ...ok,
+          "403": { description: "Admin role required" },
+          "404": { description: "Project not found" },
+        },
+      },
+      post: {
+        summary: "Add one member to a project (admin only)",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: jsonBody({
+          type: "object",
+          required: ["memberId"],
+          properties: { memberId: { type: "string" } },
+          additionalProperties: false,
+        }),
+        responses: {
+          ...ok,
+          "400": { description: "User is not eligible for project membership" },
+          "403": { description: "Admin role required" },
+          "404": { description: "Project not found" },
+        },
+      },
       put: {
         summary:
           "Replace project member IDs without granting the administrator project-content access",
@@ -873,6 +1013,31 @@ export const openApiDocument = {
         responses: {
           ...ok,
           "400": { description: "A member is inactive or is an administrator" },
+          "403": { description: "Admin role required" },
+          "404": { description: "Project not found" },
+        },
+      },
+    },
+    "/admin/project-access/{id}/members/{memberId}": {
+      delete: {
+        summary: "Remove one member from a project (admin only)",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "memberId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          ...ok,
           "403": { description: "Admin role required" },
           "404": { description: "Project not found" },
         },

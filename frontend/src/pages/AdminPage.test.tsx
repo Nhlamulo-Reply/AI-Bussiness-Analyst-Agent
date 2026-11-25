@@ -6,12 +6,16 @@ import {
   claimFirstAdmin,
   createAdminTemplate,
   inviteAdminUser,
+  addAdminProjectMember,
   listAdminProjectAccess,
+  listAdminProjectAccessPage,
+  listAdminProjectMembers,
   listAdminTemplates,
   listAdminAuditEvents,
   listAdminUsers,
+  removeAdminProjectMember,
+  searchAdminUsers,
   updateAdminUserActive,
-  updateAdminProjectMembers,
   updateAdminUserRoles,
 } from "../features/admin/admin-api";
 import type { AdminUser } from "../features/admin/admin.schemas";
@@ -22,12 +26,16 @@ vi.mock("../features/admin/admin-api", () => ({
   claimFirstAdmin: vi.fn(),
   createAdminTemplate: vi.fn(),
   inviteAdminUser: vi.fn(),
+  addAdminProjectMember: vi.fn(),
   listAdminAuditEvents: vi.fn(),
   listAdminProjectAccess: vi.fn(),
+  listAdminProjectAccessPage: vi.fn(),
+  listAdminProjectMembers: vi.fn(),
   listAdminTemplates: vi.fn(),
   listAdminUsers: vi.fn(),
+  removeAdminProjectMember: vi.fn(),
+  searchAdminUsers: vi.fn(),
   updateAdminUserActive: vi.fn(),
-  updateAdminProjectMembers: vi.fn(),
   updateAdminUserRoles: vi.fn(),
 }));
 
@@ -81,6 +89,18 @@ describe("AdminPage", () => {
       items: [],
       page: 1,
       limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminProjectAccessPage).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 10,
+      total: 0,
+    });
+    vi.mocked(listAdminProjectMembers).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 10,
       total: 0,
     });
   });
@@ -284,13 +304,13 @@ describe("AdminPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("allows administrators to edit project membership without project content access", async () => {
+  it("searches projects and users, adds members, and confirms the update", async () => {
     const projectAccess = {
       id: "project-1",
       name: "Project one",
       status: "active" as const,
-      ownerUserId: "member-1",
-      memberIds: [],
+      ownerUserId: "owner-1",
+      memberCount: 0,
     };
     vi.mocked(listAdminUsers).mockResolvedValue({
       items: [adminUser, memberUser],
@@ -305,32 +325,111 @@ describe("AdminPage", () => {
       total: 0,
     });
     vi.mocked(listAdminTemplates).mockResolvedValue([]);
-    vi.mocked(listAdminProjectAccess).mockResolvedValue({
+    vi.mocked(listAdminProjectAccessPage).mockResolvedValue({
       items: [projectAccess],
       page: 1,
-      limit: 100,
+      limit: 10,
       total: 1,
     });
-    vi.mocked(updateAdminProjectMembers).mockResolvedValue({
-      ...projectAccess,
-      memberIds: ["member-1"],
+    vi.mocked(searchAdminUsers).mockResolvedValue({
+      items: [memberUser],
+      page: 1,
+      limit: 10,
+      total: 1,
+    });
+    vi.mocked(addAdminProjectMember).mockResolvedValue({
+      projectId: projectAccess.id,
+      projectName: projectAccess.name,
+      memberId: memberUser.id,
+      memberCount: 1,
+      alreadyMember: false,
     });
     renderAdminPage(true);
     const user = userEvent.setup();
 
-    await user.selectOptions(
-      await screen.findByRole("listbox", { name: "Members for Project one" }),
-      "member-1",
+    await user.click(
+      await screen.findByRole("button", { name: "Manage members" }),
     );
-    await user.click(screen.getByRole("button", { name: "Save membership" }));
+    await user.type(
+      screen.getByRole("searchbox", { name: "Find users to add" }),
+      memberUser.email,
+    );
+    await user.click(await screen.findByRole("button", { name: "Add" }));
 
     await waitFor(() =>
-      expect(updateAdminProjectMembers).toHaveBeenCalledWith("project-1", [
-        "member-1",
-      ]),
+      expect(addAdminProjectMember).toHaveBeenCalledWith(
+        projectAccess.id,
+        memberUser.id,
+      ),
     );
     expect(
-      screen.getByText(/administrators do not receive project content access/i),
+      await screen.findByText("member@example.test was added to Project one."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        /administrators do not receive project content access/i,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("lets administrators explicitly remove an existing member", async () => {
+    const projectAccess = {
+      id: "project-1",
+      name: "Project one",
+      status: "active" as const,
+      ownerUserId: "owner-1",
+      memberCount: 1,
+    };
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser, memberUser],
+      page: 1,
+      limit: 100,
+      total: 2,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    vi.mocked(listAdminProjectAccessPage).mockResolvedValue({
+      items: [projectAccess],
+      page: 1,
+      limit: 10,
+      total: 1,
+    });
+    vi.mocked(listAdminProjectMembers).mockResolvedValue({
+      items: [memberUser],
+      page: 1,
+      limit: 10,
+      total: 1,
+    });
+    vi.mocked(removeAdminProjectMember).mockResolvedValue({
+      projectId: projectAccess.id,
+      projectName: projectAccess.name,
+      memberId: memberUser.id,
+      memberCount: 0,
+      removed: true,
+    });
+    renderAdminPage(true);
+    const user = userEvent.setup();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Manage members" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(removeAdminProjectMember).toHaveBeenCalledWith(
+        projectAccess.id,
+        memberUser.id,
+      ),
+    );
+    expect(
+      await screen.findByText(
+        "member@example.test was removed from Project one.",
+      ),
     ).toBeInTheDocument();
   });
 });

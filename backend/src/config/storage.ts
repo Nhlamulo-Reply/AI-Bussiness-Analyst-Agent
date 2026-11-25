@@ -52,12 +52,9 @@ const userRecordSchema = z
     passwordHash: z.string().min(1).optional(),
     googleSubject: z.string().min(1).optional(),
     sessionVersion: z.number().int().nonnegative().default(0),
-    roles: z.array(z.enum([
-      "business_analyst",
-      "product_owner",
-      "delivery_lead",
-      "admin",
-    ])),
+    roles: z.array(
+      z.enum(["business_analyst", "product_owner", "delivery_lead", "admin"]),
+    ),
     active: z.boolean().default(true),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -95,27 +92,33 @@ const storageFileSchema = z
     executions: z.array(executionSchema),
     passwordResetTokens: z
       .array(
-        z.object({
-          id: z.string().min(1),
-          userId: z.string().min(1),
-          tokenHash: z.string().min(64).max(64),
-          purpose: z.enum(["password_reset", "invitation"]).default("password_reset"),
-          expiresAt: z.string(),
-          usedAt: z.string().optional(),
-          createdAt: z.string(),
-        }).strict(),
+        z
+          .object({
+            id: z.string().min(1),
+            userId: z.string().min(1),
+            tokenHash: z.string().min(64).max(64),
+            purpose: z
+              .enum(["password_reset", "invitation"])
+              .default("password_reset"),
+            expiresAt: z.string(),
+            usedAt: z.string().optional(),
+            createdAt: z.string(),
+          })
+          .strict(),
       )
       .default([]),
     oauthStates: z
       .array(
-        z.object({
-          id: z.string().min(1),
-          stateHash: z.string().min(64).max(64),
-          nonceHash: z.string().min(64).max(64),
-          expiresAt: z.string(),
-          usedAt: z.string().optional(),
-          createdAt: z.string(),
-        }).strict(),
+        z
+          .object({
+            id: z.string().min(1),
+            stateHash: z.string().min(64).max(64),
+            nonceHash: z.string().min(64).max(64),
+            expiresAt: z.string(),
+            usedAt: z.string().optional(),
+            createdAt: z.string(),
+          })
+          .strict(),
       )
       .default([]),
   })
@@ -149,7 +152,14 @@ export interface ProjectAccessRecord {
   name: string;
   status: ProjectRecord["status"];
   ownerUserId: string;
-  memberIds: string[];
+  memberCount: number;
+}
+
+export interface ProjectMemberRecord {
+  id: string;
+  email: string;
+  roles: UserRole[];
+  active: boolean;
 }
 
 export type ProjectPatch = Partial<
@@ -258,14 +268,35 @@ export interface Storage extends ProjectRepository {
   listUsers(
     page: number,
     limit: number,
+    search?: string,
   ): Promise<Page<AdminUserRecord>>;
   listProjectAccess(
     page: number,
     limit: number,
+    search?: string,
   ): Promise<Page<ProjectAccessRecord>>;
+  listProjectMembers(
+    projectId: string,
+    page: number,
+    limit: number,
+    search?: string,
+  ): Promise<Page<ProjectMemberRecord>>;
+  addProjectMember(
+    projectId: string,
+    memberId: string,
+    actorUserId: string,
+  ): Promise<ProjectRecord | null>;
+  removeProjectMember(
+    projectId: string,
+    memberId: string,
+    actorUserId: string,
+  ): Promise<ProjectRecord | null>;
   listAuditEvents(page: number, limit: number): Promise<Page<AuditEventRecord>>;
   exportAuditEvents(actorUserId: string): Promise<AuditEventRecord[]>;
-  listTemplates(activeOnly?: boolean, type?: TemplateType): Promise<TemplateRecord[]>;
+  listTemplates(
+    activeOnly?: boolean,
+    type?: TemplateType,
+  ): Promise<TemplateRecord[]>;
   getTemplate(templateId: string): Promise<TemplateRecord | null>;
   createTemplate(template: TemplateRecord): Promise<TemplateRecord>;
   updateTemplate(
@@ -354,6 +385,7 @@ export interface Storage extends ProjectRepository {
     page: number,
     limit: number,
     allowedTypes?: ArtifactRecord["type"][],
+    requestedType?: ArtifactRecord["type"],
   ): Promise<Page<ArtifactRecord>>;
   createApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   getApproval(approvalId: string): Promise<ApprovalRecord | null>;
@@ -364,6 +396,10 @@ export interface Storage extends ProjectRepository {
     decision?: ApprovalDecision,
     artifactTypes?: ApprovalArtifactType[],
   ): Promise<Page<ApprovalRecord>>;
+  listApprovalsForArtifact(
+    artifactType: ApprovalArtifactType,
+    artifactId: string,
+  ): Promise<ApprovalRecord[]>;
   decideApproval(
     approvalId: string,
     reviewerUserId: string,
@@ -555,10 +591,7 @@ export class JsonFileStorage
     return id;
   }
 
-  async consumeOAuthState(
-    stateHash: string,
-    nonce: string,
-  ): Promise<boolean> {
+  async consumeOAuthState(stateHash: string, nonce: string): Promise<boolean> {
     return this.update((state) => {
       const nonceHash = createHash("sha256").update(nonce).digest("hex");
       const transaction = state.oauthStates.find(
@@ -673,10 +706,7 @@ export class JsonFileStorage
     roles: UserRecord["roles"],
     actorUserId?: string,
   ): Promise<UserRecord | null> {
-    if (
-      !hasExclusiveAdminRole(roles) ||
-      new Set(roles).size !== roles.length
-    ) {
+    if (!hasExclusiveAdminRole(roles) || new Set(roles).size !== roles.length) {
       throw new InvalidUserRolesError();
     }
     return this.update((state) => {
@@ -798,30 +828,140 @@ export class JsonFileStorage
   async listUsers(
     page: number,
     limit: number,
+    search?: string,
   ): Promise<Page<AdminUserRecord>> {
-    const users = this.getState().users.map((user) => ({
-      id: user.id,
-      email: user.email,
-      roles: normalizeUserRoles(user.roles),
-      active: user.active,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    }));
+    const normalizedSearch = search?.trim().toLocaleLowerCase();
+    const users = this.getState()
+      .users.map((user) => ({
+        id: user.id,
+        email: user.email,
+        roles: normalizeUserRoles(user.roles),
+        active: user.active,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      }))
+      .filter(
+        (user) =>
+          !normalizedSearch ||
+          user.email.toLocaleLowerCase().includes(normalizedSearch) ||
+          user.id.toLocaleLowerCase().includes(normalizedSearch),
+      );
     return makePage(users, page, limit);
   }
 
   async listProjectAccess(
     page: number,
     limit: number,
+    search?: string,
   ): Promise<Page<ProjectAccessRecord>> {
-    const projects = this.getState().projects.map((project) => ({
-      id: project.id,
-      name: project.name,
-      status: project.status,
-      ownerUserId: project.ownerUserId,
-      memberIds: [...project.members],
-    }));
+    const normalizedSearch = search?.trim().toLocaleLowerCase();
+    const projects = this.getState()
+      .projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        ownerUserId: project.ownerUserId,
+        memberCount: project.members.length,
+      }))
+      .filter(
+        (project) =>
+          !normalizedSearch ||
+          project.name.toLocaleLowerCase().includes(normalizedSearch) ||
+          project.id.toLocaleLowerCase().includes(normalizedSearch) ||
+          project.ownerUserId.toLocaleLowerCase().includes(normalizedSearch),
+      );
     return makePage(projects, page, limit);
+  }
+
+  async listProjectMembers(
+    projectId: string,
+    page: number,
+    limit: number,
+    search?: string,
+  ): Promise<Page<ProjectMemberRecord>> {
+    const state = this.getState();
+    const project = state.projects.find((record) => record.id === projectId);
+    if (!project) {
+      return makePage([], page, limit);
+    }
+    const normalizedSearch = search?.trim().toLocaleLowerCase();
+    const members = project.members
+      .map((id) => {
+        const user = state.users.find((record) => record.id === id);
+        return {
+          id,
+          email: user?.email ?? id,
+          roles: normalizeUserRoles(user?.roles ?? []),
+          active: user?.active ?? false,
+        };
+      })
+      .filter(
+        (member) =>
+          !normalizedSearch ||
+          member.email.toLocaleLowerCase().includes(normalizedSearch) ||
+          member.id.toLocaleLowerCase().includes(normalizedSearch),
+      )
+      .sort((left, right) => left.email.localeCompare(right.email));
+    return makePage(members, page, limit);
+  }
+
+  addProjectMember(
+    projectId: string,
+    memberId: string,
+    actorUserId: string,
+  ): Promise<ProjectRecord | null> {
+    return this.update((state) => {
+      const project = state.projects.find((record) => record.id === projectId);
+      if (!project || project.ownerUserId === memberId) {
+        return project ?? null;
+      }
+      if (!project.members.includes(memberId)) {
+        const previousCount = project.members.length;
+        project.members.push(memberId);
+        project.updatedAt = new Date().toISOString();
+        appendAuditEvent(state, {
+          actorUserId,
+          action: "project.members_changed",
+          resourceType: "project",
+          resourceId: projectId,
+          projectId,
+          before: { memberCount: previousCount },
+          after: {
+            addedMemberId: memberId,
+            memberCount: project.members.length,
+          },
+        });
+      }
+      return project;
+    });
+  }
+
+  removeProjectMember(
+    projectId: string,
+    memberId: string,
+    actorUserId: string,
+  ): Promise<ProjectRecord | null> {
+    return this.update((state) => {
+      const project = state.projects.find((record) => record.id === projectId);
+      if (!project) {
+        return null;
+      }
+      if (project.members.includes(memberId)) {
+        const previousCount = project.members.length;
+        project.members = project.members.filter((id) => id !== memberId);
+        project.updatedAt = new Date().toISOString();
+        appendAuditEvent(state, {
+          actorUserId,
+          action: "project.members_changed",
+          resourceType: "project",
+          resourceId: projectId,
+          projectId,
+          before: { removedMemberId: memberId, memberCount: previousCount },
+          after: { memberCount: project.members.length },
+        });
+      }
+      return project;
+    });
   }
 
   async listAuditEvents(
@@ -853,8 +993,8 @@ export class JsonFileStorage
     type?: TemplateType,
   ): Promise<TemplateRecord[]> {
     return structuredClone(
-      this.getState().templates
-        .filter(
+      this.getState()
+        .templates.filter(
           (template) =>
             (!activeOnly || template.status === "active") &&
             (!type || template.type === type),
@@ -916,8 +1056,7 @@ export class JsonFileStorage
           (record) =>
             record.id !== templateId &&
             record.type === template.type &&
-            record.name.toLocaleLowerCase() ===
-              patch.name?.toLocaleLowerCase(),
+            record.name.toLocaleLowerCase() === patch.name?.toLocaleLowerCase(),
         )
       ) {
         throw new DuplicateTemplateError();
@@ -1336,12 +1475,14 @@ export class JsonFileStorage
     page: number,
     limit: number,
     allowedTypes?: ArtifactRecord["type"][],
+    requestedType?: ArtifactRecord["type"],
   ): Promise<Page<ArtifactRecord>> {
     return makePage(
       this.getState().artifacts.filter(
         (artifact) =>
           artifact.projectId === projectId &&
-          (!allowedTypes || allowedTypes.includes(artifact.type)),
+          (!allowedTypes || allowedTypes.includes(artifact.type)) &&
+          (!requestedType || artifact.type === requestedType),
       ),
       page,
       limit,
@@ -1556,6 +1697,19 @@ export class JsonFileStorage
     return makePage(approvals, page, limit);
   }
 
+  async listApprovalsForArtifact(
+    artifactType: ApprovalArtifactType,
+    artifactId: string,
+  ): Promise<ApprovalRecord[]> {
+    return this.getState()
+      .approvals.filter(
+        (approval) =>
+          approval.artifactType === artifactType &&
+          approval.artifactId === artifactId,
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   decideApproval(
     approvalId: string,
     reviewerUserId: string,
@@ -1611,7 +1765,7 @@ export class JsonFileStorage
       currentArtifact.updatedAt = new Date().toISOString();
       approval.reviewerUserId = reviewerUserId;
       approval.decision = decision;
-      approval.comments = comments;
+      approval.reviewerComments = comments;
       approval.updatedAt = new Date().toISOString();
       appendAuditEvent(state, {
         actorUserId: reviewerUserId,
@@ -1754,7 +1908,9 @@ export class JsonFileStorage
       });
       appendAuditEvent(state, {
         actorUserId: record.id,
-        action: record.googleSubject ? "google.account_created" : "user.registered",
+        action: record.googleSubject
+          ? "google.account_created"
+          : "user.registered",
         resourceType: "user",
         resourceId: record.id,
         after: { email: record.email },

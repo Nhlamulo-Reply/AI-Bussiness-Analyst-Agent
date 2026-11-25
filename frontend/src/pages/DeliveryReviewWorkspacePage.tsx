@@ -21,6 +21,7 @@ import {
   useAddDeliveryFeedback,
   useProjectDeliveryReviews,
 } from "../features/approvals/approval-queries";
+import { getApprovalSubmitterComments } from "../features/approvals/approval.schemas";
 import { useProject } from "../features/projects/project-queries";
 import { getApiErrorPresentation } from "../lib/api-client";
 
@@ -28,6 +29,20 @@ const reviewDateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+
+const decisionLabels = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+  changes_requested: "Changes requested",
+} as const;
+
+const decisionTones = {
+  pending: "warning",
+  approved: "success",
+  rejected: "danger",
+  changes_requested: "neutral",
+} as const;
 
 export function DeliveryReviewWorkspacePage() {
   const { projectId = "" } = useParams();
@@ -77,8 +92,8 @@ export function DeliveryReviewWorkspacePage() {
               : "Delivery reviews"}
           </h1>
           <p className="page-heading__description">
-            Add implementation and delivery feedback to pending delivery
-            artifacts. Feedback never approves or rejects a requirement.
+            Add implementation and delivery feedback to delivery artifacts
+            before or after a Product Owner’s decision.
           </p>
         </div>
         <Badge tone={canReview ? "accent" : "warning"}>
@@ -110,10 +125,10 @@ export function DeliveryReviewWorkspacePage() {
           <div className="approval-page__filters">
             <p aria-live="polite">
               {reviewsQuery.data
-                ? `${reviewsQuery.data.total} pending ${
+                ? `${reviewsQuery.data.total} ${
                     reviewsQuery.data.total === 1
-                      ? "delivery review"
-                      : "delivery reviews"
+                      ? "delivery item"
+                      : "delivery items"
                   }`
                 : ""}
             </p>
@@ -145,7 +160,9 @@ export function DeliveryReviewWorkspacePage() {
                     >
                       <span className="approval-page__item-heading">
                         <strong>{resource.title}</strong>
-                        <StatusBadge tone="warning">Pending</StatusBadge>
+                        <StatusBadge tone={decisionTones[approval.decision]}>
+                          {decisionLabels[approval.decision]}
+                        </StatusBadge>
                       </span>
                       <span className="approval-page__item-meta">
                         Submitted{" "}
@@ -164,8 +181,8 @@ export function DeliveryReviewWorkspacePage() {
               ) : (
                 <EmptyState
                   icon={MessageSquareText}
-                  title="No pending delivery reviews"
-                  description="Pending risks, dependencies, and implementation plans will appear here."
+                  title="No delivery items to review"
+                  description="Risks, dependencies, and implementation plans with review submissions will appear here."
                 />
               )}
               {reviewsQuery.data && reviewsQuery.data.total > 0 ? (
@@ -228,7 +245,11 @@ export function DeliveryReviewWorkspacePage() {
                       </p>
                       <h2>{selectedReview.resource.title}</h2>
                     </div>
-                    <StatusBadge tone="warning">Pending</StatusBadge>
+                    <StatusBadge
+                      tone={decisionTones[selectedReview.approval.decision]}
+                    >
+                      {decisionLabels[selectedReview.approval.decision]}
+                    </StatusBadge>
                   </div>
                   <p className="approval-page__description">
                     {selectedReview.resource.description ||
@@ -248,10 +269,18 @@ export function DeliveryReviewWorkspacePage() {
                       </dd>
                     </div>
                   </dl>
-                  {selectedReview.approval.comments ? (
+                  {getApprovalSubmitterComments(selectedReview.approval) ? (
                     <section className="approval-page__note">
                       <h3>Submitter note</h3>
-                      <p>{selectedReview.approval.comments}</p>
+                      <p>
+                        {getApprovalSubmitterComments(selectedReview.approval)}
+                      </p>
+                    </section>
+                  ) : null}
+                  {selectedReview.approval.reviewerComments ? (
+                    <section className="approval-page__note">
+                      <h3>Product Owner feedback</h3>
+                      <p>{selectedReview.approval.reviewerComments}</p>
                     </section>
                   ) : null}
                   {selectedReview.approval.deliveryFeedback?.length ? (
@@ -277,6 +306,11 @@ export function DeliveryReviewWorkspacePage() {
                     </section>
                   ) : null}
                   <div className="approval-page__decision">
+                    <p className="approval-page__notice" role="note">
+                      This feedback is shared with the Business Analyst
+                      submitter and Product Owner. It does not change the
+                      Product Owner’s decision.
+                    </p>
                     <TextAreaField
                       hint="Feedback is recorded separately and does not change the decision."
                       label="Delivery feedback"
@@ -288,11 +322,7 @@ export function DeliveryReviewWorkspacePage() {
                       value={comments}
                     />
                     <Button
-                      disabled={
-                        !comments.trim() ||
-                        feedbackMutation.isPending ||
-                        selectedReview.approval.decision !== "pending"
-                      }
+                      disabled={!comments.trim() || feedbackMutation.isPending}
                       leadingIcon={
                         <RotateCw
                           aria-hidden="true"

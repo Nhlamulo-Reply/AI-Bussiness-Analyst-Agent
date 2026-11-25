@@ -21,6 +21,7 @@ import {
   createArtifactBodySchema,
   createProjectBodySchema,
   deliveryArtifactTypes,
+  artifactTypes,
   patchProjectBodySchema,
   projectMembersBodySchema,
 } from "../domain/domain.schemas";
@@ -286,6 +287,23 @@ export function createProjectRouter(
     async (request, response, next) => {
       try {
         const { page, limit } = parsePagination(request.query);
+        const parsedType =
+          request.query.type === undefined
+            ? undefined
+            : z.enum(artifactTypes).safeParse(request.query.type);
+        if (parsedType && !parsedType.success) {
+          throw new AppError(
+            400,
+            "VALIDATION_ERROR",
+            "The artifact type filter is invalid.",
+            [
+              {
+                field: "type",
+                reason: "Specify a supported artifact type.",
+              },
+            ],
+          );
+        }
         const user = getAuthenticatedUser(request);
         const allowedTypes = [
           ...(hasPermission(user.roles, "project.business.read")
@@ -295,11 +313,20 @@ export function createProjectRouter(
             ? deliveryArtifactTypes
             : []),
         ];
+        const requestedType = parsedType?.success ? parsedType.data : undefined;
+        if (requestedType && !allowedTypes.includes(requestedType)) {
+          throw new AppError(
+            403,
+            "FORBIDDEN",
+            "You do not have permission to view this artifact type.",
+          );
+        }
         const artifacts = await storage.listArtifacts(
           getRouteParam(request, "id"),
           page,
           limit,
           allowedTypes,
+          requestedType,
         );
         response
           .status(200)

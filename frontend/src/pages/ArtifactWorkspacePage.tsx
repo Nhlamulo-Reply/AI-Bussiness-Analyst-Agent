@@ -29,6 +29,7 @@ import {
 import {
   artifactStatuses,
   artifactTypes,
+  artifactTypeSchema,
   type Artifact,
   type ArtifactStatus,
   type ArtifactType,
@@ -112,7 +113,7 @@ export function ArtifactWorkspacePage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | ArtifactType>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
@@ -120,7 +121,12 @@ export function ArtifactWorkspacePage() {
   const [notice, setNotice] = useState<
     { kind: "created"; title: string } | { kind: "updated" } | undefined
   >();
-  const artifactsQuery = useArtifacts(projectId, page);
+  const artifactsQuery = useArtifacts(
+    projectId,
+    page,
+    artifactPageSize,
+    typeFilter === "all" ? undefined : typeFilter,
+  );
   const requirementsQuery = useRequirements(projectId, 1, 100, canPrepare);
   const createMutation = useCreateArtifact(projectId);
   const result = artifactsQuery.data;
@@ -151,10 +157,9 @@ export function ArtifactWorkspacePage() {
         );
       const matchesStatus =
         statusFilter === "all" || artifact.status === statusFilter;
-      const matchesType = typeFilter === "all" || artifact.type === typeFilter;
-      return matchesSearch && matchesStatus && matchesType;
+      return matchesSearch && matchesStatus;
     });
-  }, [result, search, statusFilter, typeFilter]);
+  }, [result, search, statusFilter]);
 
   const columns: DataTableColumn<Artifact>[] = [
     {
@@ -398,7 +403,10 @@ export function ArtifactWorkspacePage() {
           <select
             aria-label="Filter artifacts by type"
             onChange={(event) => {
-              setTypeFilter(event.currentTarget.value);
+              const parsed = artifactTypeSchema.safeParse(
+                event.currentTarget.value,
+              );
+              setTypeFilter(parsed.success ? parsed.data : "all");
               setPage(1);
             }}
             value={typeFilter}

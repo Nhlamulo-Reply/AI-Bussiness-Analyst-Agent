@@ -11,6 +11,8 @@ import {
   inviteUserResponseSchema,
   projectAccessPageSchema,
   projectAccessSchema,
+  projectMemberPageSchema,
+  projectMembershipUpdateSchema,
   templateTypeSchema,
   updateUserRolesSchema,
   updateProjectMembersSchema,
@@ -47,11 +49,94 @@ export function inviteAdminUser(input: z.input<typeof inviteUserInputSchema>) {
 }
 
 export function listAdminProjectAccess(signal?: AbortSignal) {
-  return apiRequest("/admin/project-access?page=1&limit=100", {
+  return listAdminProjectAccessPage({}, signal);
+}
+
+export function listAdminProjectAccessPage(
+  {
+    page = 1,
+    limit = 10,
+    search,
+  }: { page?: number; limit?: number; search?: string },
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (search?.trim()) query.set("search", search.trim());
+  return apiRequest(`/admin/project-access?${query}`, {
     auth: "required",
     schema: projectAccessPageSchema,
     signal,
   });
+}
+
+export function searchAdminUsers(
+  {
+    page = 1,
+    limit = 10,
+    search,
+  }: { page?: number; limit?: number; search: string },
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search: search.trim(),
+  });
+  return apiRequest(`/admin/users?${query}`, {
+    auth: "required",
+    schema: adminUserPageSchema,
+    signal,
+  });
+}
+
+export function listAdminProjectMembers(
+  projectId: string,
+  {
+    page = 1,
+    limit = 10,
+    search,
+  }: { page?: number; limit?: number; search?: string },
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (search?.trim()) query.set("search", search.trim());
+  return apiRequest(
+    `/admin/project-access/${encodeURIComponent(projectId)}/members?${query}`,
+    {
+      auth: "required",
+      schema: projectMemberPageSchema,
+      signal,
+    },
+  );
+}
+
+export function addAdminProjectMember(projectId: string, memberId: string) {
+  return apiRequest(
+    `/admin/project-access/${encodeURIComponent(projectId)}/members`,
+    {
+      method: "POST",
+      auth: "required",
+      json: { memberId },
+      schema: projectMembershipUpdateSchema,
+    },
+  );
+}
+
+export function removeAdminProjectMember(projectId: string, memberId: string) {
+  return apiRequest(
+    `/admin/project-access/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`,
+    {
+      method: "DELETE",
+      auth: "required",
+      schema: projectMembershipUpdateSchema,
+    },
+  );
 }
 
 export function updateAdminProjectMembers(
