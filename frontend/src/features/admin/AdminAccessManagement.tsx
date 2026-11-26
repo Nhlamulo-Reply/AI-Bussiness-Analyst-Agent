@@ -57,6 +57,9 @@ export function AdminAccessManagement() {
   );
   const canTrashProjects = hasPermission(session?.user.roles, "admin.trash");
   const [email, setEmail] = useState("");
+  const [adminMessage, setAdminMessage] = useState(
+    "You are invited to join our workspace. Please use the link below to complete your account setup.",
+  );
   const [inviteRoles, setInviteRoles] = useState<UserRole[]>([
     "business_analyst",
   ]);
@@ -161,6 +164,7 @@ export function AdminAccessManagement() {
                 if (email.trim() && inviteRoles.length > 0) {
                   invitationMutation.mutate({
                     email: email.trim(),
+                    message: adminMessage.trim(),
                     roles: inviteRoles,
                   });
                 }
@@ -180,6 +184,23 @@ export function AdminAccessManagement() {
                   required
                   type="email"
                   value={email}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">
+                  Message from the administrator
+                </span>
+                <textarea
+                  className="field__control field__control--textarea"
+                  disabled={invitationMutation.isPending}
+                  maxLength={500}
+                  minLength={3}
+                  onChange={(event) => {
+                    invitationMutation.reset();
+                    setAdminMessage(event.currentTarget.value);
+                  }}
+                  required
+                  value={adminMessage}
                 />
               </label>
               <fieldset className="admin-role-editor__fieldset">
@@ -205,6 +226,7 @@ export function AdminAccessManagement() {
               <Button
                 disabled={
                   !email.trim() ||
+                  adminMessage.trim().length < 3 ||
                   inviteRoles.length === 0 ||
                   invitationMutation.isPending
                 }
@@ -224,10 +246,25 @@ export function AdminAccessManagement() {
             ) : null}
             {invitationMutation.data ? (
               <div aria-live="polite" className="admin-invitation-result">
-                <p className="admin-success" role="status">
-                  {invitationMutation.data.invitationResent
-                    ? "The pending invitation was refreshed."
-                    : "Invitation created. Share this one-time link securely."}{" "}
+                <p
+                  className={
+                    invitationMutation.data.emailStatus === "sent"
+                      ? "admin-success"
+                      : "admin-inline-error"
+                  }
+                  role={
+                    invitationMutation.data.emailStatus === "sent"
+                      ? "status"
+                      : "alert"
+                  }
+                >
+                  {invitationMutation.data.emailStatus === "sent"
+                    ? invitationMutation.data.invitationResent
+                      ? "The pending invitation was refreshed and emailed."
+                      : "Invitation created and emailed."
+                    : invitationMutation.data.emailStatus === "disabled"
+                      ? "Invitation created, but email delivery is disabled. Share the one-time link below securely."
+                      : "Invitation created, but the email could not be sent. Copy the one-time link below and share it securely."}{" "}
                   Expires{" "}
                   {new Intl.DateTimeFormat(undefined, {
                     dateStyle: "medium",
@@ -551,11 +588,21 @@ function ProjectMembershipManager({
     mutationFn: ({ memberId }: { memberId: string; email: string }) =>
       addAdminProjectMember(project.id, memberId),
     onSuccess: async (result, variables) => {
-      setNotice(
-        result.alreadyMember
-          ? `${variables.email} is already a member of ${project.name}.`
-          : `${variables.email} was added to ${project.name}.`,
-      );
+      if (result.alreadyMember) {
+        setNotice(`${variables.email} is already a member of ${project.name}.`);
+      } else if (result.invitationPending) {
+        const delivery =
+          result.emailStatus === "sent"
+            ? result.invitationResent
+              ? "The invitation was resent."
+              : "The invitation email was sent."
+            : result.emailStatus === "disabled"
+              ? "Email delivery is disabled; the invitation remains pending."
+              : "The invitation remains pending, but email delivery failed.";
+        setNotice(`${delivery} ${variables.email} must accept to join.`);
+      } else {
+        setNotice(`${variables.email} was added to ${project.name}.`);
+      }
       await invalidateMembershipData();
     },
     retry: false,

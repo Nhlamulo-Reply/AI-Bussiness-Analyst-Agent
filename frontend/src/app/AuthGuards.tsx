@@ -37,7 +37,9 @@ export function RequireAuth({
       <Navigate
         replace
         to="/login"
-        state={{ from: { pathname: location.pathname } }}
+        state={{
+          from: { pathname: location.pathname, search: location.search },
+        }}
       />
     );
   }

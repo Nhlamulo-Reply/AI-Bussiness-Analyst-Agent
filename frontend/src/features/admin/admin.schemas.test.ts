@@ -78,16 +78,36 @@ describe("audit event schema", () => {
         }).success,
       ).toBe(true);
     }
+    for (const action of [
+      "project.member_invited",
+      "project.member_invitation_accepted",
+      "project.member_invitation_rejected",
+      "project.member_invitation_cancelled",
+    ] as const) {
+      expect(
+        auditEventSchema.safeParse({
+          id: "event-2",
+          actorUserId: "user-1",
+          action,
+          resourceType: "project",
+          resourceId: "project-1",
+          projectId: "project-1",
+          createdAt: "2026-03-02T03:04:05.000Z",
+        }).success,
+      ).toBe(true);
+    }
 
     expect(
       inviteUserInputSchema.safeParse({
         email: "new@example.test",
+        message: "We are pleased to invite you to join our workspace.",
         roles: ["admin", "business_analyst"],
       }).success,
     ).toBe(false);
     expect(
       inviteUserInputSchema.safeParse({
         email: "new@example.test",
+        message: "We are pleased to invite you to join our workspace.",
         roles: ["business_analyst", "product_owner"],
       }).success,
     ).toBe(true);
@@ -105,6 +125,7 @@ describe("audit event schema", () => {
         invitationUrl: "https://app.example.test/reset-password?token=secret",
         expiresAt: "2026-03-02T03:04:05.000Z",
         invitationResent: false,
+        emailStatus: "sent",
       }).user.active,
     ).toBe(false);
   });

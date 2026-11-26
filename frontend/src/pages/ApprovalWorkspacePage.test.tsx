@@ -113,7 +113,11 @@ describe("ApprovalWorkspacePage", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <MemoryRouter initialEntries={["/app/projects/project-1/approvals"]}>
+          <MemoryRouter
+            initialEntries={[
+              "/app/projects/project-1/approvals?approvalId=approval-1",
+            ]}
+          >
             <Routes>
               <Route
                 path="/app/projects/:projectId/approvals"
@@ -132,7 +136,7 @@ describe("ApprovalWorkspacePage", () => {
       await screen.findByRole("heading", { name: "Business requirement" }),
     ).toBeInTheDocument();
     await userActions.type(
-      screen.getByRole("textbox", { name: "Reviewer comments" }),
+      screen.getByRole("textbox", { name: "Decision reason" }),
       "Approved.",
     );
     await userActions.click(screen.getByRole("button", { name: "Approve" }));

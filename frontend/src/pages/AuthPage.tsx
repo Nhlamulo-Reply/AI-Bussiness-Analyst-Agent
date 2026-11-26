@@ -273,5 +273,13 @@ function getSafeReturnPath(state: unknown) {
     return "/app";
   }
   const path = from.pathname;
-  return path === "/app" || path.startsWith("/app/") ? path : "/app";
+  if (path !== "/app" && !path.startsWith("/app/")) return "/app";
+  const search =
+    "search" in from &&
+    typeof from.search === "string" &&
+    from.search.startsWith("?") &&
+    !from.search.includes("#")
+      ? from.search
+      : "";
+  return `${path}${search}`;
 }

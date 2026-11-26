@@ -332,4 +332,72 @@ describe("DeliveryReviewWorkspacePage", () => {
     });
     queryClient.clear();
   });
+
+  it("loads the email-linked approval even when it is outside the visible page", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async (input: RequestInfo | URL, options?: RequestInit) => {
+          const url = String(input);
+          const method = options?.method ?? "GET";
+          let data: unknown;
+
+          if (url.endsWith("/auth/me")) {
+            data = { user };
+          } else if (url.endsWith("/projects/project-1")) {
+            data = project;
+          } else if (url.includes("/projects/project-1/delivery-reviews?")) {
+            data = { items: [], page: 1, limit: 12, total: 20 };
+          } else if (
+            url.endsWith("/approvals/approval-1") &&
+            method === "GET"
+          ) {
+            data = {
+              approval: { ...approval, decision: "approved" },
+              resource,
+            };
+          } else {
+            throw new Error(`Unexpected request: ${method} ${url}`);
+          }
+
+          return Response.json({
+            success: true,
+            data,
+            requestId: "delivery-deep-link-test",
+          });
+        },
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter
+            initialEntries={[
+              "/app/projects/project-1/delivery-reviews?approvalId=approval-1",
+            ]}
+          >
+            <Routes>
+              <Route
+                path="/app/projects/:projectId/delivery-reviews"
+                element={<DeliveryReviewWorkspacePage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Implementation risk" }),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/approvals/approval-1",
+      expect.objectContaining({ method: "GET" }),
+    );
+    queryClient.clear();
+  });
 });

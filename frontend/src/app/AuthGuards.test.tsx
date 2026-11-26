@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider } from "../features/auth/AuthProvider";
 import type { AuthUser } from "../features/auth/auth.schemas";
 import { clearSession, setSession } from "../lib/auth-store";
@@ -19,7 +19,7 @@ function GuardTestApp({ initialEntry }: { initialEntry: string }) {
     <AuthProvider>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/login" element={<p>Sign-in page</p>} />
+          <Route path="/login" element={<SignInPage />} />
           <Route
             path="/pending-access"
             element={
@@ -45,6 +45,17 @@ function GuardTestApp({ initialEntry }: { initialEntry: string }) {
   );
 }
 
+function SignInPage() {
+  const location = useLocation();
+  const state = location.state as { from?: { search?: string } } | null;
+  return (
+    <>
+      <p>Sign-in page</p>
+      <p data-testid="return-search">{state?.from?.search ?? ""}</p>
+    </>
+  );
+}
+
 describe("authentication route guards", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_API_BASE_URL", "/api/v1");
@@ -61,6 +72,19 @@ describe("authentication route guards", () => {
     render(<GuardTestApp initialEntry="/app/projects/project-1/approvals" />);
 
     expect(await screen.findByText("Sign-in page")).toBeInTheDocument();
+  });
+
+  it("preserves email deep-link queries through the sign-in redirect", async () => {
+    render(
+      <GuardTestApp
+        initialEntry="/app/projects/project-1/approvals?approvalId=approval-1"
+      />,
+    );
+
+    expect(await screen.findByText("Sign-in page")).toBeInTheDocument();
+    expect(screen.getByTestId("return-search")).toHaveTextContent(
+      "?approvalId=approval-1",
+    );
   });
 
   it("shows a clear forbidden state for an authenticated non-Product-Owner", async () => {

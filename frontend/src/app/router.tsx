@@ -21,6 +21,7 @@ import {
   ProjectDocumentLibraryRoute,
   ProjectExportRoute,
   ProjectListPage,
+  ProjectMembershipInvitationPage,
   ProjectOverviewPage,
   RequirementListRoute,
   SuspendedPage,
@@ -82,6 +83,10 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <AppIndexRoute /> },
+      {
+        path: "project-membership-invitations/:invitationId",
+        element: page(<ProjectMembershipInvitationPage />),
+      },
       {
         path: "projects",
         element: (

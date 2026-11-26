@@ -96,6 +96,11 @@ export const DeliveryReviewWorkspacePage = lazy(() =>
     default: module.DeliveryReviewWorkspacePage,
   })),
 );
+export const ProjectMembershipInvitationPage = lazy(() =>
+  import("../pages/ProjectMembershipInvitationPage").then((module) => ({
+    default: module.ProjectMembershipInvitationPage,
+  })),
+);
 export const AdminPage = lazy(() =>
   import("../pages/AdminPage").then((module) => ({
     default: module.AdminPage,

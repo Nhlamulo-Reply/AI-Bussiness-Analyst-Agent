@@ -100,7 +100,7 @@ export const approvalDecisionSchema = z.enum([
 export const decideApprovalInputSchema = z
   .object({
     decision: approvalDecisionSchema,
-    reviewerComments: z.string().trim().max(4000),
+    reviewerComments: z.string().trim().min(1).max(4000),
   })
   .strict();
 
