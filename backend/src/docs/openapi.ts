@@ -757,6 +757,35 @@ export const openApiDocument = {
         },
       },
     },
+    "/approvals/{id}/delivery-feedback/{feedbackId}/withdraw": {
+      patch: {
+        summary:
+          "Withdraw the current Delivery Lead's feedback while retaining its audit history",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "feedbackId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          ...ok,
+          "403": {
+            description: "Only the Delivery Lead who authored feedback may withdraw it",
+          },
+          "404": { description: "Feedback not found or inaccessible" },
+          "409": { description: "Feedback was already withdrawn" },
+        },
+      },
+    },
     "/users/{id}/roles": {
       patch: {
         summary:
@@ -1181,6 +1210,125 @@ export const openApiDocument = {
         },
       },
     },
+    "/trash": {
+      get: {
+        summary:
+          "List records in Trash that the current user may access; administrators with trash access see all records",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+        ],
+        responses: {
+          ...ok,
+          "403": { description: "Trash access is not available for this role" },
+        },
+      },
+    },
+    "/trash/{resourceType}/{id}": {
+      delete: {
+        summary:
+          "Move a project, document, or eligible authored draft to Trash",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "resourceType",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+              enum: ["project", "document", "requirement", "artifact"],
+            },
+          },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          ...ok,
+          "403": { description: "The current user cannot trash this record" },
+          "404": { description: "Record not found" },
+          "409": { description: "Record cannot be moved to Trash" },
+        },
+      },
+    },
+    "/trash/{resourceType}/{id}/restore": {
+      patch: {
+        summary:
+          "Restore a trashed record for its original actor, project owner, or administrator",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "resourceType",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+              enum: ["project", "document", "requirement", "artifact"],
+            },
+          },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          ...ok,
+          "403": { description: "The current user cannot restore this record" },
+          "404": { description: "Trashed record not found" },
+        },
+      },
+    },
+    "/trash/{resourceType}/{id}/purge": {
+      delete: {
+        summary:
+          "Permanently delete an eligible record after 30 days (administrator-only)",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "resourceType",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+              enum: ["project", "document", "requirement", "artifact"],
+            },
+          },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: jsonBody({
+          $ref: "#/components/schemas/PurgeTrashRecord",
+        }),
+        responses: {
+          ...ok,
+          "400": { description: "Confirmation or reason is invalid" },
+          "403": { description: "Purge permission is required" },
+          "404": { description: "Trashed record not found" },
+          "409": {
+            description:
+              "Retention period has not ended or protected records depend on the target",
+          },
+        },
+      },
+    },
     "/requirements/analyze": workflowSubmission(
       "Analyze source documents and create draft requirements",
     ),
@@ -1263,6 +1411,15 @@ export const openApiDocument = {
             maxItems: 10,
             uniqueItems: true,
           },
+        },
+        additionalProperties: false,
+      },
+      PurgeTrashRecord: {
+        type: "object",
+        required: ["confirmation", "reason"],
+        properties: {
+          confirmation: { type: "string", minLength: 1, maxLength: 240 },
+          reason: { type: "string", minLength: 10, maxLength: 1000 },
         },
         additionalProperties: false,
       },

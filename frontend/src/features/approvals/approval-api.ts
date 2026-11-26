@@ -125,3 +125,17 @@ export function addDeliveryFeedback(approvalId: string, comments: string) {
     },
   );
 }
+
+export function withdrawDeliveryFeedback(
+  approvalId: string,
+  feedbackId: string,
+) {
+  return apiRequest(
+    `/approvals/${encodeURIComponent(approvalId)}/delivery-feedback/${encodeURIComponent(feedbackId)}/withdraw`,
+    {
+      method: "PATCH",
+      auth: "required",
+      schema: approvalSchema,
+    },
+  );
+}

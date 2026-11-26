@@ -495,6 +495,15 @@ describe("AdminPage", () => {
     renderAdminPage(true);
     const user = userEvent.setup();
 
+    const projectActions = await screen.findByRole("button", {
+      name: "More actions for project Project one",
+    });
+    await user.click(projectActions);
+    expect(
+      screen.getByRole("button", { name: "Move to bin" }),
+    ).toBeInTheDocument();
+    await user.click(projectActions);
+
     await user.click(
       await screen.findByRole("button", { name: "Manage members" }),
     );

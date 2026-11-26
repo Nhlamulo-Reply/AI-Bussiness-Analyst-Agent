@@ -33,6 +33,9 @@ describe("Capstone RBAC permission policy", () => {
     ).toBe(false);
     expect(hasPermission(["admin"], "admin.users")).toBe(true);
     expect(hasPermission(["admin"], "admin.project_access")).toBe(true);
+    expect(hasPermission(["admin"], "admin.trash")).toBe(true);
+    expect(hasPermission(["admin"], "admin.trash.purge")).toBe(true);
+    expect(hasPermission(["delivery_lead"], "admin.trash")).toBe(false);
     expect(hasPermission(["admin"], "project.create")).toBe(false);
     expect(
       hasPermission(["admin", "business_analyst"], "project.read"),

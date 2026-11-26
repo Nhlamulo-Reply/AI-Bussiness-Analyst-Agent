@@ -29,6 +29,9 @@ describe("frontend RBAC permissions", () => {
     );
     expect(hasPermission(["admin"], "admin.users")).toBe(true);
     expect(hasPermission(["admin"], "admin.project_access")).toBe(true);
+    expect(hasPermission(["admin"], "admin.trash")).toBe(true);
+    expect(hasPermission(["admin"], "admin.trash.purge")).toBe(true);
+    expect(hasPermission(["product_owner"], "admin.trash")).toBe(false);
     expect(hasPermission(["admin"], "project.read")).toBe(false);
   });
 

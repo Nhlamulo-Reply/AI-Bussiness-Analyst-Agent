@@ -18,11 +18,14 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { TrashConfirmationDialog } from "../components/ui/TrashConfirmationDialog";
+import { MoveToBinMenu } from "../components/ui/MoveToBinMenu";
 import { useProjects } from "../features/projects/project-queries";
 import { formatProjectDate, getProjectPath } from "../features/projects/format";
 import type { Project } from "../features/projects/project.schemas";
 import { getProjectSummary } from "../features/projects/project.schemas";
 import { getApiErrorPresentation } from "../lib/api-client";
+import { useMoveToTrash } from "../features/trash/trash-queries";
 
 const pageSize = 12;
 
@@ -33,7 +36,9 @@ export function ProjectListPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [view, setView] = useState<"cards" | "table">("cards");
+  const [trashTarget, setTrashTarget] = useState<Project | null>(null);
   const projectsQuery = useProjects(page, pageSize);
+  const moveToTrashMutation = useMoveToTrash();
   const projects = projectsQuery.data;
 
   const filteredProjects = useMemo(() => {
@@ -79,6 +84,20 @@ export function ProjectListPage() {
       key: "updated",
       header: "Last updated",
       render: (project) => formatProjectDate(project.updatedAt),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (project) =>
+        project.ownerUserId === session?.user.id ? (
+          <MoveToBinMenu
+            disabled={moveToTrashMutation.isPending}
+            itemLabel={`project ${project.name}`}
+            onMoveToBin={() => setTrashTarget(project)}
+          />
+        ) : (
+          "-"
+        ),
     },
   ];
 
@@ -256,7 +275,16 @@ export function ProjectListPage() {
         {projects && filteredProjects.length > 0 && view === "cards" ? (
           <div className="project-card-grid">
             {filteredProjects.map((project) => (
-              <ProjectCard key={project.id} project={project} />
+              <ProjectCard
+                key={project.id}
+                onMoveToBin={
+                  project.ownerUserId === session?.user.id
+                    ? () => setTrashTarget(project)
+                    : undefined
+                }
+                project={project}
+                binActionDisabled={moveToTrashMutation.isPending}
+              />
             ))}
           </div>
         ) : null}
@@ -317,6 +345,40 @@ export function ProjectListPage() {
           Search and status filters apply to this page only.
         </p>
       ) : null}
+      <TrashConfirmationDialog
+        error={
+          moveToTrashMutation.isError
+            ? getApiErrorPresentation(
+                moveToTrashMutation.error,
+                "The project couldn't be moved to the bin.",
+              ).message
+            : undefined
+        }
+        isPending={moveToTrashMutation.isPending}
+        itemLabel={trashTarget?.name ?? ""}
+        onConfirm={() => {
+          if (!trashTarget) return;
+          moveToTrashMutation.mutate(
+            { resourceType: "project", resourceId: trashTarget.id },
+            { onSuccess: () => setTrashTarget(null) },
+          );
+        }}
+        onOpenChange={(open) => {
+          if (!open && !moveToTrashMutation.isPending) {
+            setTrashTarget(null);
+            moveToTrashMutation.reset();
+          }
+        }}
+        open={Boolean(trashTarget)}
+        requestId={
+          moveToTrashMutation.isError
+            ? getApiErrorPresentation(
+                moveToTrashMutation.error,
+                "The project couldn't be moved to the bin.",
+              ).requestId
+            : undefined
+        }
+      />
     </section>
   );
 }

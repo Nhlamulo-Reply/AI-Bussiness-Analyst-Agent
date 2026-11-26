@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import {
+  DeliveryFeedbackOwnershipError,
+  DeliveryFeedbackTransitionError,
   ApprovalSubmissionError,
   ApprovalTransitionError,
   type Storage,
@@ -311,6 +313,62 @@ export function createApprovalRouter(
         });
       } catch (error) {
         next(error);
+      }
+    },
+  );
+
+  router.patch(
+    "/:id/delivery-feedback/:feedbackId/withdraw",
+    requirePermission("delivery.review"),
+    async (request, response, next) => {
+      try {
+        const user = getAuthenticatedUser(request);
+        const approvalId = getRouteParam(request, "id");
+        const approval = await storage.getApproval(approvalId);
+        if (
+          !approval ||
+          !(await storage.userCanAccessProject(approval.projectId, user.id))
+        ) {
+          throw new AppError(404, "NOT_FOUND", "Approval not found.");
+        }
+        if (
+          !deliveryArtifactTypes.some((type) => type === approval.artifactType)
+        ) {
+          throw new AppError(
+            403,
+            "FORBIDDEN",
+            "Delivery feedback is only available for delivery artifacts.",
+          );
+        }
+        const updated = await storage.withdrawDeliveryFeedback(
+          approvalId,
+          getRouteParam(request, "feedbackId"),
+          user.id,
+        );
+        if (!updated) {
+          throw new AppError(404, "NOT_FOUND", "Delivery feedback not found.");
+        }
+        response.status(200).json({
+          success: true,
+          data: updated,
+          requestId: request.id,
+        });
+      } catch (error) {
+        next(
+          error instanceof DeliveryFeedbackOwnershipError
+            ? new AppError(
+                403,
+                "FORBIDDEN",
+                "Only the author can withdraw their delivery feedback.",
+              )
+            : error instanceof DeliveryFeedbackTransitionError
+              ? new AppError(
+                  409,
+                  "CONFLICT",
+                  "This delivery feedback has already been withdrawn.",
+                )
+              : error,
+        );
       }
     },
   );

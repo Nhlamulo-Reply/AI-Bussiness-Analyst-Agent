@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  Check,
   Eye,
   EyeOff,
   LoaderCircle,
@@ -89,8 +88,8 @@ export function AuthPage({ mode }: AuthPageProps) {
   };
 
   return (
-    <main className="auth-page">
-      <div className="auth-page__visual">
+    <main className="auth-page auth-page--centered">
+      <section aria-labelledby="auth-title" className="auth-page__content">
         <Link
           aria-label="AIVA — AI Virtual Analyst home"
           className="brand auth-page__brand"
@@ -98,33 +97,6 @@ export function AuthPage({ mode }: AuthPageProps) {
         >
           <img alt="" className="brand__logo" src="/aiva-logo.png" />
         </Link>
-        <div className="auth-page__message">
-          <p className="eyebrow">THOUGHTFUL ANALYSIS STARTS HERE</p>
-          <h1>Make room for the work that matters.</h1>
-          <p>
-            Bring the pieces together. Keep the evidence in view. Move forward
-            with confidence.
-          </p>
-          <ul>
-            <li>
-              <Check aria-hidden="true" size={15} />A shared home for project
-              context
-            </li>
-            <li>
-              <Check aria-hidden="true" size={15} />
-              Clear links from evidence to outcome
-            </li>
-            <li>
-              <Check aria-hidden="true" size={15} />
-              AI suggestions remain human-reviewed drafts
-            </li>
-          </ul>
-        </div>
-        <span className="auth-page__orb auth-page__orb--one" />
-        <span className="auth-page__orb auth-page__orb--two" />
-      </div>
-
-      <section aria-labelledby="auth-title" className="auth-page__content">
         <Link className="auth-page__back" to="/">
           <ArrowLeft aria-hidden="true" size={15} />
           Back to AIVA home
@@ -134,9 +106,9 @@ export function AuthPage({ mode }: AuthPageProps) {
             <ShieldCheck aria-hidden="true" size={21} />
           </span>
           <p className="eyebrow">ACCOUNT ACCESS</p>
-          <h2 id="auth-title">
+          <h1 className="auth-page__title" id="auth-title">
             {isRegister ? "Create your account" : "Welcome back"}
-          </h2>
+          </h1>
           <p className="auth-page__intro">
             {isRegister
               ? "Create a secure account to begin organizing your analysis."

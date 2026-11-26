@@ -369,7 +369,10 @@ export function ArtifactDetailsDialog({
                 ) : null}
                 {approval.deliveryFeedback?.map((feedback) => (
                   <p key={`${feedback.reviewerUserId}-${feedback.createdAt}`}>
-                    <strong>Delivery Lead feedback: </strong>
+                    <strong>
+                      Delivery Lead feedback
+                      {feedback.withdrawnAt ? " (withdrawn)" : ""}:{" "}
+                    </strong>
                     {feedback.comments}
                   </p>
                 ))}

@@ -24,6 +24,7 @@ import {
   ProjectOverviewPage,
   RequirementListRoute,
   SuspendedPage,
+  TrashPage,
   WorkflowWorkbenchRoute,
 } from "./lazy-pages";
 import { hasPermission } from "../features/auth/permissions";
@@ -94,6 +95,14 @@ export const router = createBrowserRouter([
         element: (
           <RequirePermission permission="project.create">
             {page(<CreateProjectPage />)}
+          </RequirePermission>
+        ),
+      },
+      {
+        path: "trash",
+        element: (
+          <RequirePermission permission={["project.read", "admin.trash"]}>
+            {page(<TrashPage />)}
           </RequirePermission>
         ),
       },

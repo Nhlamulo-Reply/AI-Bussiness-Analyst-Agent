@@ -18,6 +18,8 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { TrashConfirmationDialog } from "../components/ui/TrashConfirmationDialog";
+import { MoveToBinMenu } from "../components/ui/MoveToBinMenu";
 import { ArtifactDetailsDialog } from "../features/artifacts/ArtifactDetailsDialog";
 import { ArtifactForm } from "../features/artifacts/ArtifactForm";
 import {
@@ -40,6 +42,7 @@ import { formatProjectDate } from "../features/projects/format";
 import { getApiErrorPresentation } from "../lib/api-client";
 import { useAuth } from "../features/auth/useAuth";
 import { hasPermission } from "../features/auth/permissions";
+import { useMoveToTrash } from "../features/trash/trash-queries";
 
 const typeLabels: Record<ArtifactType, string> = {
   epic: "Epic",
@@ -115,6 +118,7 @@ export function ArtifactWorkspacePage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState<"all" | ArtifactType>("all");
   const [createOpen, setCreateOpen] = useState(false);
+  const [trashTarget, setTrashTarget] = useState<Artifact | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
@@ -129,6 +133,7 @@ export function ArtifactWorkspacePage() {
   );
   const requirementsQuery = useRequirements(projectId, 1, 100, canPrepare);
   const createMutation = useCreateArtifact(projectId);
+  const trashMutation = useMoveToTrash();
   const result = artifactsQuery.data;
   const targetArtifactId = searchParams.get("artifactId") ?? "";
   const targetFromWorkflow = searchParams.get("source") === "workflow";
@@ -217,16 +222,27 @@ export function ArtifactWorkspacePage() {
     },
     {
       key: "actions",
-      header: "Details",
+      header: "Actions",
       render: (artifact) => (
-        <Button
-          onClick={() => setSelectedArtifactId(artifact.id)}
-          size="small"
-          type="button"
-          variant="secondary"
-        >
-          Review
-        </Button>
+        <div className="artifact-table__actions">
+          <Button
+            onClick={() => setSelectedArtifactId(artifact.id)}
+            size="small"
+            type="button"
+            variant="secondary"
+          >
+            Review
+          </Button>
+          {canPrepare &&
+          artifact.createdByUserId === session?.user.id &&
+          artifact.status === "draft" ? (
+            <MoveToBinMenu
+              disabled={trashMutation.isPending}
+              itemLabel={`artifact ${artifact.type}`}
+              onMoveToBin={() => setTrashTarget(artifact)}
+            />
+          ) : null}
+        </div>
       ),
     },
   ];
@@ -627,6 +643,49 @@ export function ArtifactWorkspacePage() {
           open
         />
       ) : null}
+      <TrashConfirmationDialog
+        error={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The deliverable couldn't be moved to the bin.",
+              ).message
+            : undefined
+        }
+        isPending={trashMutation.isPending}
+        itemLabel={trashTarget?.title ?? ""}
+        onConfirm={() => {
+          if (!trashTarget) return;
+          trashMutation.mutate(
+            { resourceType: "artifact", resourceId: trashTarget.id },
+            {
+              onSuccess: () => {
+                if (targetArtifactId === trashTarget.id) {
+                  closeDetails(false);
+                } else {
+                  setSelectedArtifactId(null);
+                }
+                setTrashTarget(null);
+              },
+            },
+          );
+        }}
+        onOpenChange={(open) => {
+          if (!open && !trashMutation.isPending) {
+            setTrashTarget(null);
+            trashMutation.reset();
+          }
+        }}
+        open={Boolean(trashTarget)}
+        requestId={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The deliverable couldn't be moved to the bin.",
+              ).requestId
+            : undefined
+        }
+      />
     </section>
   );
 }

@@ -28,11 +28,26 @@ export const approvalSchema = z
       .array(
         z
           .object({
+            id: z.string().min(1).optional(),
             reviewerUserId: z.string().min(1),
             comments: z.string().trim().min(1).max(4000),
             createdAt: z.iso.datetime(),
+            withdrawnAt: z.iso.datetime().optional(),
+            withdrawnByUserId: z.string().min(1).optional(),
           })
-          .strict(),
+          .strict()
+          .superRefine((feedback, context) => {
+            if (
+              (feedback.withdrawnAt === undefined) !==
+              (feedback.withdrawnByUserId === undefined)
+            ) {
+              context.addIssue({
+                code: "custom",
+                path: ["withdrawnAt"],
+                message: "Withdrawn feedback requires withdrawal metadata.",
+              });
+            }
+          }),
       )
       .optional(),
     createdAt: z.iso.datetime(),

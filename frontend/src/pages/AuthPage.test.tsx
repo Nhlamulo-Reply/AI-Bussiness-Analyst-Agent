@@ -10,8 +10,8 @@ describe("AuthPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses AIVA branding and links back to the public landing page", () => {
-    render(
+  it("centers the form below the AIVA logo and links to the landing page", () => {
+    const { container } = render(
       <AuthProvider>
         <MemoryRouter>
           <AuthPage mode="login" />
@@ -25,6 +25,15 @@ describe("AuthPage", () => {
     expect(
       screen.getByRole("link", { name: "Back to AIVA home" }),
     ).toHaveAttribute("href", "/");
+    expect(
+      container.querySelector(".auth-page__visual"),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector(".auth-page__content")?.firstElementChild,
+    ).toHaveClass("auth-page__brand");
+    expect(screen.getByRole("heading", { name: "Welcome back" })).toHaveClass(
+      "auth-page__title",
+    );
     expect(screen.getByText("New to AIVA?")).toBeInTheDocument();
   });
 

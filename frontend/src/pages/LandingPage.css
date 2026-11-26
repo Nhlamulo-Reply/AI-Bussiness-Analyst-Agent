@@ -1249,6 +1249,13 @@
   background: rgb(9 17 38 / 90%);
 }
 
+:root[data-theme="dark"] .landing-ref__brand {
+  width: 172px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: #fff;
+}
+
 :root[data-theme="dark"] .landing-ref__nav-link {
   color: #dde5fb;
 }
