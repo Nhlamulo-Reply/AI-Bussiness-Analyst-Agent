@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import { hasPermission } from "../authorization/permissions";
 import { AppError } from "../errors/app-error";
 
 const projectIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
@@ -14,6 +15,16 @@ export function requireProjectAccess(projects: ProjectRepository): RequestHandle
     const projectId = Array.isArray(projectParam) ? projectParam[0] : projectParam;
     if (!user) {
       next(new AppError(401, "UNAUTHORIZED", "Authentication is required."));
+      return;
+    }
+    if (!hasPermission(user.roles, "project.read")) {
+      next(
+        new AppError(
+          403,
+          "FORBIDDEN",
+          "You do not have permission to access projects.",
+        ),
+      );
       return;
     }
     if (typeof projectId !== "string" || !projectIdPattern.test(projectId)) {

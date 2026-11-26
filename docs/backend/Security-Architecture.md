@@ -11,7 +11,7 @@ The backend must protect project data, human review processes, and AI-generated 
 - Role model: `user`, `reviewer`, `admin`, optionally `project_owner`
 - Project memberships and ownership checks on every project-scoped action
 - Resource authorization enforced at service or controller layer
-- Public registration assigns only the `user` role. An admin can assign roles through the role-management API; initial local admin provisioning is out-of-band for the temporary JSON store.
+- Public registration assigns no roles. Users have no application permissions until an administrator assigns a role through the role-management API; initial admin provisioning uses the configured bootstrap token.
 - Project access is limited to the owning user or an explicit project member; a global admin role does not bypass project membership.
 - Only the project owner can replace the member list; added users must already be registered.
 - Role claims are included in JWTs, so role changes apply to newly issued tokens and users must log in again.

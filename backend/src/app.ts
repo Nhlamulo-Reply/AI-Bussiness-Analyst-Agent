@@ -8,14 +8,22 @@ import type { Storage } from "./config/storage";
 import type { UserRepository } from "./modules/auth/user.repository";
 import { createLogger } from "./config/logger";
 import { AppError } from "./common/errors/app-error";
-import { errorHandler, notFoundHandler } from "./common/middleware/error-handler";
+import {
+  errorHandler,
+  notFoundHandler,
+} from "./common/middleware/error-handler";
 import { createRequestId } from "./common/middleware/request-context";
 import { createAuthRouter } from "./modules/auth/auth.routes";
 import { createProjectRouter } from "./modules/projects/project.routes";
 import { createRequirementRouter } from "./modules/requirements/requirement.routes";
 import { createWorkflowRouter } from "./modules/workflows/workflow.routes";
-import { createApprovalRouter } from "./modules/approvals/approval.routes";
+import {
+  createApprovalRouter,
+  createProjectApprovalRouter,
+} from "./modules/approvals/approval.routes";
 import { createUserRouter } from "./modules/users/user.routes";
+import { createAdminRouter } from "./modules/users/admin.routes";
+import { createTemplateRouter } from "./modules/users/template.routes";
 import { createArtifactRouter } from "./modules/artifacts/artifact.routes";
 import { openApiDocument } from "./docs/openapi";
 import { WorkflowService } from "./workflows/workflow-service";
@@ -33,22 +41,30 @@ export function createApp(dependencies: AppDependencies): Express {
   //app = FastApi()
   const app = express();
   const logger = dependencies.logger ?? createLogger(dependencies.config);
-  const workflowService = dependencies.workflowService ?? new WorkflowService(
-    dependencies.storage,
-    createStructuredOutputProvider(dependencies.config),
-    logger
-  );
+  const workflowService =
+    dependencies.workflowService ??
+    new WorkflowService(
+      dependencies.storage,
+      createStructuredOutputProvider(dependencies.config, logger),
+      logger,
+    );
 
   app.disable("x-powered-by");
   app.use(helmet());
-  app.use(pinoHttp({
-    logger,
-    genReqId: createRequestId,
-    serializers: {
-      req: (request) => ({ id: request.id, method: request.method, url: request.url }),
-      res: (response) => ({ statusCode: response.statusCode })
-    }
-  }));
+  app.use(
+    pinoHttp({
+      logger,
+      genReqId: createRequestId,
+      serializers: {
+        req: (request) => ({
+          id: request.id,
+          method: request.method,
+          url: request.url,
+        }),
+        res: (response) => ({ statusCode: response.statusCode }),
+      },
+    }),
+  );
 
   app.use(express.json({ limit: "1mb" }));
 
@@ -56,34 +72,90 @@ export function createApp(dependencies: AppDependencies): Express {
     response.status(200).json({
       success: true,
       data: { status: "ok" },
-      requestId: request.id
+      requestId: request.id,
     });
   });
 
-  app.get("/api/v1/health/ready", async (request: Request, response: Response, next) => {
-    try {
-      await dependencies.storage.ping();
-      response.status(200).json({
-        success: true,
-        data: { status: "ready", storage: "json" },
-        requestId: request.id
-      });
-    } catch {
-      next(new AppError(503, "SERVICE_UNAVAILABLE", "The service is not ready."));
-    }
-  });
+  app.get(
+    "/api/v1/health/ready",
+    async (request: Request, response: Response, next) => {
+      try {
+        await dependencies.storage.ping();
+        response.status(200).json({
+          success: true,
+          data: {
+            status: "ready",
+            storage: dependencies.storage.storageType,
+          },
+          requestId: request.id,
+        });
+      } catch {
+        next(
+          new AppError(503, "SERVICE_UNAVAILABLE", "The service is not ready."),
+        );
+      }
+    },
+  );
 
-  app.use("/api/v1/auth", createAuthRouter(dependencies.users, dependencies.config));
-  app.use("/api/v1/projects", createProjectRouter(dependencies.storage, dependencies.config.jwtSecret));
-  app.use("/api/v1", createRequirementRouter(dependencies.storage, dependencies.config.jwtSecret));
-  app.use("/api/v1", createWorkflowRouter(
-    dependencies.storage,
-    dependencies.config.jwtSecret,
-    workflowService
-  ));
-  app.use("/api/v1/approvals", createApprovalRouter(dependencies.storage, dependencies.config.jwtSecret));
-  app.use("/api/v1/users", createUserRouter(dependencies.storage, dependencies.config.jwtSecret));
-  app.use("/api/v1/artifacts", createArtifactRouter(dependencies.storage, dependencies.config.jwtSecret));
+  app.use(
+    "/api/v1/auth",
+    createAuthRouter(
+      dependencies.users,
+      dependencies.config,
+      dependencies.storage,
+      dependencies.storage,
+    ),
+  );
+  app.use(
+    "/api/v1/projects",
+    createProjectRouter(dependencies.storage, dependencies.config.jwtSecret),
+  );
+  app.use(
+    "/api/v1",
+    createRequirementRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+    ),
+  );
+  app.use(
+    "/api/v1",
+    createWorkflowRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+      workflowService,
+    ),
+  );
+  app.use(
+    "/api/v1/projects",
+    createProjectApprovalRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+    ),
+  );
+  app.use(
+    "/api/v1/approvals",
+    createApprovalRouter(dependencies.storage, dependencies.config.jwtSecret),
+  );
+  app.use(
+    "/api/v1/users",
+    createUserRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+      dependencies.config.adminBootstrapToken,
+    ),
+  );
+  app.use(
+    "/api/v1/admin",
+    createAdminRouter(dependencies.storage, dependencies.config),
+  );
+  app.use(
+    "/api/v1/templates",
+    createTemplateRouter(dependencies.storage, dependencies.config.jwtSecret),
+  );
+  app.use(
+    "/api/v1/artifacts",
+    createArtifactRouter(dependencies.storage, dependencies.config.jwtSecret),
+  );
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.use(notFoundHandler);
   app.use(errorHandler);

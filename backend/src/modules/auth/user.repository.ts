@@ -1,11 +1,27 @@
-export const userRoles = ["user", "reviewer", "admin", "project_owner"] as const;
+export const userRoles = [
+  "business_analyst",
+  "product_owner",
+  "delivery_lead",
+  "admin",
+] as const;
 export type UserRole = typeof userRoles[number];
+
+export function normalizeUserRoles(roles: readonly UserRole[]): UserRole[] {
+  return roles.includes("admin") ? ["admin"] : [...roles];
+}
+
+export function hasExclusiveAdminRole(roles: readonly UserRole[]): boolean {
+  return !roles.includes("admin") || roles.length === 1;
+}
 
 export interface UserRecord {
   id: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
+  googleSubject?: string;
+  sessionVersion?: number;
   roles: UserRole[];
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -13,7 +29,12 @@ export interface UserRecord {
 export interface UserRepository {
   findByEmail(email: string): Promise<UserRecord | null>;
   findById(userId: string): Promise<UserRecord | null>;
-  insertUser(user: Omit<UserRecord, "id">): Promise<UserRecord>;
+  insertUser(
+    user: Omit<UserRecord, "id" | "active" | "sessionVersion"> & {
+      active?: boolean;
+      sessionVersion?: number;
+    },
+  ): Promise<UserRecord>;
   updateUserRoles(userId: string, roles: UserRecord["roles"]): Promise<UserRecord | null>;
 }
 

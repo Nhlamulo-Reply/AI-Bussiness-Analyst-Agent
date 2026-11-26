@@ -5,7 +5,12 @@ declare global {
       user?: {
         id: string;
         email: string;
-        roles: Array<"user" | "reviewer" | "admin" | "project_owner">;
+        roles: Array<
+          | "business_analyst"
+          | "product_owner"
+          | "delivery_lead"
+          | "admin"
+        >;
       };
     }
   }
