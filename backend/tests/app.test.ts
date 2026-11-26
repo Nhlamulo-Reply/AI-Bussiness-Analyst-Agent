@@ -979,6 +979,7 @@ describe("backend foundation", () => {
       });
     const inviteUrl = new URL(invitation.body.data.invitationUrl as string);
     const inviteToken = inviteUrl.searchParams.get("token");
+    expect(invitation.body.data.emailSent).toBe(false);
     const resentInvitation = await request(app)
       .post("/api/v1/admin/users/invitations")
       .set("Authorization", `Bearer ${adminToken}`)

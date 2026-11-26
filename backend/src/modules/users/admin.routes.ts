@@ -23,6 +23,7 @@ import {
 } from "../domain/domain.schemas";
 import { hasExclusiveAdminRole, userRoles } from "../auth/user.repository";
 import { requirePermission } from "../../common/middleware/authorization";
+import { createEmailProvider } from "../../integrations/email/email-provider";
 
 const activeStatusSchema = z.object({ active: z.boolean() }).strict();
 const addProjectMemberSchema = z
@@ -68,7 +69,16 @@ export function createAdminRouter(
   storage: Storage,
   config: Pick<
     AppConfig,
-    "jwtSecret" | "passwordResetTtlSeconds" | "passwordResetFrontendUrl"
+    | "jwtSecret"
+    | "passwordResetTtlSeconds"
+    | "passwordResetFrontendUrl"
+    | "emailProvider"
+    | "smtpHost"
+    | "smtpPort"
+    | "smtpSecure"
+    | "smtpUser"
+    | "smtpPass"
+    | "emailFrom"
   >,
 ): Router {
   const router = Router();
@@ -114,6 +124,11 @@ export function createAdminRouter(
           expiresAt,
           actorUserId: actor.id,
         });
+        const emailSent = config.emailProvider === "smtp";
+        await createEmailProvider(config as AppConfig).sendInvitation(
+          invitation.user.email,
+          setupUrl.toString(),
+        );
         response.status(invitation.resent ? 200 : 201).json({
           success: true,
           data: {
@@ -126,6 +141,7 @@ export function createAdminRouter(
             invitationUrl: setupUrl.toString(),
             expiresAt,
             invitationResent: invitation.resent,
+            emailSent,
           },
           requestId: request.id,
         });
