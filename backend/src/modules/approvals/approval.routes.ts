@@ -29,6 +29,7 @@ import {
   patchApprovalBodySchema,
   artifactTypes,
 } from "../domain/domain.schemas";
+import type { ApplicationEmailNotifications } from "../../integrations/email/application-email-notifications";
 
 const approvalDecisions = [
   "pending",
@@ -142,6 +143,7 @@ export function createProjectApprovalRouter(
 export function createApprovalRouter(
   storage: Storage,
   jwtSecret: string,
+  emailNotifications: ApplicationEmailNotifications,
 ): Router {
   const router = Router();
   router.use(authenticate(jwtSecret, storage));
@@ -224,6 +226,16 @@ export function createApprovalRouter(
           createdAt: now,
           updatedAt: now,
         });
+        const project = await storage.getProject(approval.projectId);
+        if (!project) {
+          throw new AppError(404, "NOT_FOUND", "Project not found.");
+        }
+        await emailNotifications.approvalSubmitted(
+          approval,
+          user,
+          project,
+          artifact.title,
+        );
         response
           .status(201)
           .json({ success: true, data: approval, requestId: request.id });
@@ -243,7 +255,6 @@ export function createApprovalRouter(
 
   router.get(
     "/:id",
-    requirePermission("approval.decide_business"),
     async (request, response, next) => {
       try {
         const user = getAuthenticatedUser(request);
@@ -255,6 +266,18 @@ export function createApprovalRouter(
           !(await storage.userCanAccessProject(approval.projectId, user.id))
         ) {
           throw new AppError(404, "NOT_FOUND", "Approval not found.");
+        }
+        const canReadApproval =
+          hasPermission(user.roles, "approval.decide_business") ||
+          (deliveryArtifactTypes.some(
+            (type) => type === approval.artifactType,
+          ) && hasPermission(user.roles, "delivery.review"));
+        if (!canReadApproval) {
+          throw new AppError(
+            403,
+            "FORBIDDEN",
+            "You do not have permission to view this approval.",
+          );
         }
         const resource = await storage.getArtifact(
           approval.artifactType,
@@ -396,15 +419,35 @@ export function createApprovalRouter(
           );
         }
 
+        const project = await storage.getProject(approval.projectId);
+        const resource = await storage.getArtifact(
+          approval.artifactType,
+          approval.artifactId,
+        );
+        const submitter = await storage.findById(approval.submittedByUserId);
+        if (!project || !resource || !submitter) {
+          throw new AppError(404, "NOT_FOUND", "Approval details not found.");
+        }
+        const reviewerComments =
+          request.body.reviewerComments ?? request.body.comments;
         const updated = await storage.decideApproval(
           approval.id,
           user.id,
           request.body.decision,
-          request.body.reviewerComments ?? request.body.comments,
+          reviewerComments,
         );
         if (!updated) {
           throw new AppError(404, "NOT_FOUND", "Approval artifact not found.");
         }
+        await emailNotifications.approvalDecided(
+          updated,
+          user,
+          submitter,
+          project,
+          resource.title,
+          request.body.decision,
+          reviewerComments,
+        );
         response
           .status(200)
           .json({ success: true, data: updated, requestId: request.id });

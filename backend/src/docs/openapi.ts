@@ -494,6 +494,55 @@ export const openApiDocument = {
         },
       },
     },
+    "/project-membership-invitations/{id}": {
+      get: {
+        summary: "Get a project membership invitation for its invited user",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          ...ok,
+          "200": {
+            description: "Invitation and minimal project details",
+          },
+          "404": { description: "Invitation not found or not assigned to user" },
+        },
+      },
+    },
+    "/project-membership-invitations/{id}/respond": {
+      post: {
+        summary: "Accept or reject a project membership invitation",
+        security: bearerSecurity,
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: jsonBody({
+          type: "object",
+          required: ["decision"],
+          properties: {
+            decision: { type: "string", enum: ["accepted", "rejected"] },
+          },
+          additionalProperties: false,
+        }),
+        responses: {
+          ...ok,
+          "403": { description: "The invited user's account is ineligible" },
+          "404": { description: "Invitation not found or not assigned to user" },
+          "409": { description: "Invitation is no longer pending" },
+        },
+      },
+    },
     "/requirements/{id}": {
       patch: {
         summary: "Revise a draft requirement and create a version snapshot",
@@ -628,7 +677,7 @@ export const openApiDocument = {
     "/approvals/{id}": {
       get: {
         summary:
-          "Get an approval and its current requirement or artifact (Product Owner only)",
+          "Get an approval and its current requirement or artifact (Product Owner, or Delivery Lead for delivery artifacts)",
         security: bearerSecurity,
         parameters: [
           {
@@ -644,7 +693,7 @@ export const openApiDocument = {
             description:
               "Approval record and its current requirement or artifact resource",
           },
-          "403": { description: "Product Owner role required" },
+          "403": { description: "The user cannot review this artifact" },
           "404": { description: "Approval not found or inaccessible" },
         },
       },
@@ -670,20 +719,26 @@ export const openApiDocument = {
             },
             reviewerComments: {
               type: "string",
+              minLength: 1,
               description:
-                "Product Owner feedback, stored separately from submitter comments. The legacy comments field remains accepted.",
+                "Required reason for the Product Owner's decision; stored separately from submitter comments.",
             },
             comments: {
               type: "string",
-              description: "Legacy alias for reviewerComments.",
+              minLength: 1,
+              description: "Required legacy alias for reviewerComments.",
             },
           },
+          oneOf: [
+            { required: ["reviewerComments"] },
+            { required: ["comments"] },
+          ],
           additionalProperties: false,
         }),
         responses: {
           ...ok,
           "403": {
-            description: "Product Owner role required or self-review attempted",
+          description: "Product Owner role required or self-review attempted",
           },
           "409": { description: "Approval already decided" },
         },
@@ -875,13 +930,19 @@ export const openApiDocument = {
     "/admin/users/invitations": {
       post: {
         summary:
-          "Create an inactive user and return a one-time password-setup invitation link (admin only)",
+          "Create an inactive user, email a one-time password-setup link, and return the link for secure sharing (admin only)",
         security: bearerSecurity,
         requestBody: jsonBody({
           type: "object",
-          required: ["email", "roles"],
+          required: ["email", "message", "roles"],
           properties: {
             email: { type: "string", format: "email" },
+            message: {
+              type: "string",
+              minLength: 3,
+              maxLength: 500,
+              description: "A brief message from the administrator.",
+            },
             roles: {
               type: "array",
               minItems: 1,
@@ -899,8 +960,14 @@ export const openApiDocument = {
           additionalProperties: false,
         }),
         responses: {
-          ...created,
-          "200": { description: "A pending invitation was refreshed" },
+          "201": {
+            description:
+              "Invitation created. The response includes the one-time link and email delivery status.",
+          },
+          "200": {
+            description:
+              "Pending invitation refreshed. The response includes the new one-time link and email delivery status.",
+          },
           "403": { description: "Admin role required" },
           "409": { description: "Email is already registered" },
         },

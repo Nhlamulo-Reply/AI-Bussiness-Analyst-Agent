@@ -4,7 +4,11 @@ import { TextDecoder } from "node:util";
 import { Router, type RequestHandler } from "express";
 import multer, { MulterError } from "multer";
 import { z } from "zod";
-import type { Storage } from "../../config/storage";
+import {
+  ProjectMembershipInviteeIneligibleError,
+  ProjectMembershipProjectInactiveError,
+  type Storage,
+} from "../../config/storage";
 import { AppError } from "../../common/errors/app-error";
 import {
   getAuthenticatedUser,
@@ -26,6 +30,7 @@ import {
   projectMembersBodySchema,
 } from "../domain/domain.schemas";
 import { renderProjectExport } from "../exports/project-exporter";
+import type { ApplicationEmailNotifications } from "../../integrations/email/application-email-notifications";
 
 const maxDocumentSizeBytes = 5 * 1024 * 1024;
 const allowedFormats = new Map([
@@ -59,6 +64,7 @@ const upload = multer({
 export function createProjectRouter(
   storage: Storage,
   jwtSecret: string,
+  emailNotifications: ApplicationEmailNotifications,
 ): Router {
   const router = Router();
   router.use(authenticate(jwtSecret, storage));
@@ -217,7 +223,7 @@ export function createProjectRouter(
             );
           }
         }
-        const updated = await storage.replaceProjectMembers(
+        const updated = await storage.replaceProjectMembersWithInvitations(
           projectId,
           request.body.memberIds as string[],
           user.id,
@@ -225,10 +231,62 @@ export function createProjectRouter(
         if (!updated) {
           throw new AppError(404, "NOT_FOUND", "Project not found.");
         }
+        const invitationResults = await Promise.all(
+          updated.invitations.map(async ({ invitation, alreadyPending }) => {
+            const invitee = await storage.findById(invitation.invitedUserId);
+            if (!invitee) {
+              return {
+                invitationId: invitation.id,
+                invitedUserId: invitation.invitedUserId,
+                emailStatus: "failed" as const,
+                alreadyPending,
+              };
+            }
+            const emailStatus = await emailNotifications.projectMemberInvited(
+              invitation.id,
+              invitee,
+              user,
+              updated.project,
+            );
+            return {
+              invitationId: invitation.id,
+              invitedUserId: invitation.invitedUserId,
+              emailStatus,
+              alreadyPending,
+            };
+          }),
+        );
         response
           .status(200)
-          .json({ success: true, data: updated, requestId: request.id });
+          .json({
+            success: true,
+            data: {
+              ...updated.project,
+              invitations: invitationResults,
+            },
+            requestId: request.id,
+          });
       } catch (error) {
+        if (error instanceof ProjectMembershipInviteeIneligibleError) {
+          next(
+            new AppError(
+              400,
+              "VALIDATION_ERROR",
+              "A member must be an active non-administrator user with a project role.",
+            ),
+          );
+          return;
+        }
+        if (error instanceof ProjectMembershipProjectInactiveError) {
+          next(
+            new AppError(
+              409,
+              "CONFLICT",
+              "Archived projects cannot create membership invitations.",
+            ),
+          );
+          return;
+        }
         next(error);
       }
     },

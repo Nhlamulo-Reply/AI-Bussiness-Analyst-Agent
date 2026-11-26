@@ -38,6 +38,7 @@ import {
   requirementSchema,
   versionSchema,
   templateSchema,
+  projectMembershipInvitationSchema,
   type ApprovalDecision,
   type ApprovalRecord,
   type ArtifactRecord,
@@ -46,6 +47,7 @@ import {
   type DocumentRecord,
   type ExecutionRecord,
   type ProjectRecord,
+  type ProjectMembershipInvitationRecord,
   type RequirementRecord,
   type VersionRecord,
   type TemplateRecord,
@@ -89,6 +91,9 @@ const storageFileSchema = z
     version: z.literal(2),
     users: z.array(userRecordSchema),
     projects: z.array(projectSchema),
+    projectMembershipInvitations: z
+      .array(projectMembershipInvitationSchema)
+      .default([]),
     documents: z.array(documentRecordSchema),
     requirements: z.array(requirementSchema),
     artifacts: z.array(artifactSchema),
@@ -283,6 +288,34 @@ export class ApprovalSubmissionError extends Error {
   }
 }
 
+export class ProjectMembershipInviteeIneligibleError extends Error {
+  constructor() {
+    super("Project invitations require an active user with a project role");
+    this.name = "ProjectMembershipInviteeIneligibleError";
+  }
+}
+
+export class ProjectMembershipAlreadyActiveError extends Error {
+  constructor() {
+    super("User already has access to this project");
+    this.name = "ProjectMembershipAlreadyActiveError";
+  }
+}
+
+export class ProjectMembershipProjectInactiveError extends Error {
+  constructor() {
+    super("Project membership cannot be changed while the project is inactive");
+    this.name = "ProjectMembershipProjectInactiveError";
+  }
+}
+
+export class ProjectMembershipInvitationTransitionError extends Error {
+  constructor() {
+    super("Project membership invitation is no longer pending");
+    this.name = "ProjectMembershipInvitationTransitionError";
+  }
+}
+
 export class ArtifactReviewConflictError extends Error {
   constructor() {
     super("Artifact cannot be edited while an approval is pending");
@@ -359,6 +392,30 @@ export interface Storage extends ProjectRepository {
     memberId: string,
     actorUserId: string,
   ): Promise<ProjectRecord | null>;
+  createProjectMembershipInvitation(
+    projectId: string,
+    invitedUserId: string,
+    invitedByUserId: string,
+  ): Promise<{
+    invitation: ProjectMembershipInvitationRecord;
+    alreadyPending: boolean;
+  } | null>;
+  getProjectMembershipInvitation(
+    invitationId: string,
+  ): Promise<ProjectMembershipInvitationRecord | null>;
+  listProjectMembershipInvitations(
+    projectId: string,
+  ): Promise<ProjectMembershipInvitationRecord[]>;
+  respondToProjectMembershipInvitation(
+    invitationId: string,
+    invitedUserId: string,
+    decision: "accepted" | "rejected",
+  ): Promise<ProjectMembershipInvitationRecord | null>;
+  cancelProjectMembershipInvitation(
+    projectId: string,
+    invitedUserId: string,
+    actorUserId: string,
+  ): Promise<ProjectMembershipInvitationRecord | null>;
   listAuditEvents(page: number, limit: number): Promise<Page<AuditEventRecord>>;
   listAuditEventsWithLabels(
     page: number,
@@ -398,6 +455,17 @@ export interface Storage extends ProjectRepository {
     memberIds: string[],
     actorUserId: string,
   ): Promise<ProjectRecord | null>;
+  replaceProjectMembersWithInvitations(
+    projectId: string,
+    memberIds: string[],
+    actorUserId: string,
+  ): Promise<{
+    project: ProjectRecord;
+    invitations: Array<{
+      invitation: ProjectMembershipInvitationRecord;
+      alreadyPending: boolean;
+    }>;
+  } | null>;
   createDocument(document: DocumentRecord): Promise<DocumentRecord>;
   getDocument(documentId: string): Promise<DocumentRecord | null>;
   listDocuments(
@@ -1018,6 +1086,190 @@ export class JsonFileStorage
     });
   }
 
+  createProjectMembershipInvitation(
+    projectId: string,
+    invitedUserId: string,
+    invitedByUserId: string,
+  ): Promise<{
+    invitation: ProjectMembershipInvitationRecord;
+    alreadyPending: boolean;
+  } | null> {
+    return this.update((state) => {
+      const project = state.projects.find((record) => record.id === projectId);
+      if (!project || project.trashedAt) return null;
+      if (project.status !== "active") {
+        throw new ProjectMembershipProjectInactiveError();
+      }
+      if (
+        project.ownerUserId === invitedUserId ||
+        project.members.includes(invitedUserId)
+      ) {
+        throw new ProjectMembershipAlreadyActiveError();
+      }
+      const invitee = state.users.find((record) => record.id === invitedUserId);
+      if (
+        !invitee ||
+        !invitee.active ||
+        invitee.roles.length === 0 ||
+        invitee.roles.includes("admin")
+      ) {
+        throw new ProjectMembershipInviteeIneligibleError();
+      }
+      const existing = state.projectMembershipInvitations.find(
+        (record) =>
+          record.projectId === projectId &&
+          record.invitedUserId === invitedUserId &&
+          record.status === "pending",
+      );
+      if (existing) {
+        return { invitation: existing, alreadyPending: true };
+      }
+
+      const now = new Date().toISOString();
+      const invitation: ProjectMembershipInvitationRecord = {
+        id: randomUUID(),
+        projectId,
+        invitedUserId,
+        invitedByUserId,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      };
+      state.projectMembershipInvitations.push(invitation);
+      appendAuditEvent(state, {
+        actorUserId: invitedByUserId,
+        action: "project.member_invited",
+        resourceType: "project",
+        resourceId: projectId,
+        projectId,
+        after: { invitedUserId, invitationId: invitation.id },
+      });
+      return { invitation, alreadyPending: false };
+    });
+  }
+
+  async getProjectMembershipInvitation(
+    invitationId: string,
+  ): Promise<ProjectMembershipInvitationRecord | null> {
+    return this.findRecord("projectMembershipInvitations", invitationId);
+  }
+
+  async listProjectMembershipInvitations(
+    projectId: string,
+  ): Promise<ProjectMembershipInvitationRecord[]> {
+    return this.getState()
+      .projectMembershipInvitations.filter(
+        (invitation) =>
+          invitation.projectId === projectId &&
+          invitation.status === "pending",
+      )
+      .map((invitation) => structuredClone(invitation));
+  }
+
+  respondToProjectMembershipInvitation(
+    invitationId: string,
+    invitedUserId: string,
+    decision: "accepted" | "rejected",
+  ): Promise<ProjectMembershipInvitationRecord | null> {
+    return this.update((state) => {
+      const invitation = state.projectMembershipInvitations.find(
+        (record) => record.id === invitationId,
+      );
+      if (!invitation) return null;
+      if (invitation.invitedUserId !== invitedUserId) return null;
+      if (invitation.status !== "pending") {
+        throw new ProjectMembershipInvitationTransitionError();
+      }
+      const project = state.projects.find(
+        (record) =>
+          record.id === invitation.projectId &&
+          !record.trashedAt,
+      );
+      if (!project) {
+        throw new ProjectMembershipInvitationTransitionError();
+      }
+      if (decision === "accepted") {
+        if (project.status !== "active") {
+          throw new ProjectMembershipInvitationTransitionError();
+        }
+        const invitee = state.users.find(
+          (record) => record.id === invitedUserId,
+        );
+        if (
+          !invitee ||
+          !invitee.active ||
+          invitee.roles.length === 0 ||
+          invitee.roles.includes("admin")
+        ) {
+          throw new ProjectMembershipInviteeIneligibleError();
+        }
+        if (!project.members.includes(invitedUserId)) {
+          const previousCount = project.members.length;
+          project.members.push(invitedUserId);
+          project.updatedAt = new Date().toISOString();
+          appendAuditEvent(state, {
+            actorUserId: invitedUserId,
+            action: "project.members_changed",
+            resourceType: "project",
+            resourceId: project.id,
+            projectId: project.id,
+            before: { memberCount: previousCount },
+            after: {
+              addedMemberId: invitedUserId,
+              memberCount: project.members.length,
+            },
+          });
+        }
+      }
+
+      const now = new Date().toISOString();
+      invitation.status = decision;
+      invitation.respondedAt = now;
+      invitation.updatedAt = now;
+      appendAuditEvent(state, {
+        actorUserId: invitedUserId,
+        action:
+          decision === "accepted"
+            ? "project.member_invitation_accepted"
+            : "project.member_invitation_rejected",
+        resourceType: "project",
+        resourceId: project.id,
+        projectId: project.id,
+        after: { invitedUserId, invitationId },
+      });
+      return invitation;
+    });
+  }
+
+  cancelProjectMembershipInvitation(
+    projectId: string,
+    invitedUserId: string,
+    actorUserId: string,
+  ): Promise<ProjectMembershipInvitationRecord | null> {
+    return this.update((state) => {
+      const invitation = state.projectMembershipInvitations.find(
+        (record) =>
+          record.projectId === projectId &&
+          record.invitedUserId === invitedUserId &&
+          record.status === "pending",
+      );
+      if (!invitation) return null;
+      const now = new Date().toISOString();
+      invitation.status = "cancelled";
+      invitation.respondedAt = now;
+      invitation.updatedAt = now;
+      appendAuditEvent(state, {
+        actorUserId,
+        action: "project.member_invitation_cancelled",
+        resourceType: "project",
+        resourceId: projectId,
+        projectId,
+        after: { invitedUserId, invitationId: invitation.id },
+      });
+      return invitation;
+    });
+  }
+
   async listAuditEvents(
     page: number,
     limit: number,
@@ -1308,6 +1560,122 @@ export class JsonFileStorage
         });
       }
       return project;
+    });
+  }
+
+  replaceProjectMembersWithInvitations(
+    projectId: string,
+    memberIds: string[],
+    actorUserId: string,
+  ): Promise<{
+    project: ProjectRecord;
+    invitations: Array<{
+      invitation: ProjectMembershipInvitationRecord;
+      alreadyPending: boolean;
+    }>;
+  } | null> {
+    return this.update((state) => {
+      const project = state.projects.find((record) => record.id === projectId);
+      if (!project || project.trashedAt) return null;
+      if (project.status !== "active") {
+        throw new ProjectMembershipProjectInactiveError();
+      }
+
+      const desiredMembers = new Set(
+        memberIds.filter((memberId) => memberId !== project.ownerUserId),
+      );
+      for (const memberId of desiredMembers) {
+        const invitee = state.users.find((record) => record.id === memberId);
+        if (
+          !invitee ||
+          !invitee.active ||
+          invitee.roles.length === 0 ||
+          invitee.roles.includes("admin")
+        ) {
+          throw new ProjectMembershipInviteeIneligibleError();
+        }
+      }
+
+      const previousMembers = [...project.members];
+      project.members = project.members.filter((memberId) =>
+        desiredMembers.has(memberId),
+      );
+      if (project.members.length !== previousMembers.length) {
+        project.updatedAt = new Date().toISOString();
+        appendAuditEvent(state, {
+          actorUserId,
+          action: "project.members_changed",
+          resourceType: "project",
+          resourceId: projectId,
+          projectId,
+          before: { memberIds: previousMembers },
+          after: { memberIds: [...project.members] },
+        });
+      }
+
+      for (const invitation of state.projectMembershipInvitations) {
+        if (
+          invitation.projectId === projectId &&
+          invitation.status === "pending" &&
+          !desiredMembers.has(invitation.invitedUserId)
+        ) {
+          const now = new Date().toISOString();
+          invitation.status = "cancelled";
+          invitation.respondedAt = now;
+          invitation.updatedAt = now;
+          appendAuditEvent(state, {
+            actorUserId,
+            action: "project.member_invitation_cancelled",
+            resourceType: "project",
+            resourceId: projectId,
+            projectId,
+            after: {
+              invitedUserId: invitation.invitedUserId,
+              invitationId: invitation.id,
+            },
+          });
+        }
+      }
+
+      const invitations: Array<{
+        invitation: ProjectMembershipInvitationRecord;
+        alreadyPending: boolean;
+      }> = [];
+      for (const invitedUserId of desiredMembers) {
+        if (project.members.includes(invitedUserId)) continue;
+        const existing = state.projectMembershipInvitations.find(
+          (invitation) =>
+            invitation.projectId === projectId &&
+            invitation.invitedUserId === invitedUserId &&
+            invitation.status === "pending",
+        );
+        if (existing) {
+          invitations.push({ invitation: existing, alreadyPending: true });
+          continue;
+        }
+        const now = new Date().toISOString();
+        const invitation: ProjectMembershipInvitationRecord = {
+          id: randomUUID(),
+          projectId,
+          invitedUserId,
+          invitedByUserId: actorUserId,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        };
+        state.projectMembershipInvitations.push(invitation);
+        invitations.push({ invitation, alreadyPending: false });
+        appendAuditEvent(state, {
+          actorUserId,
+          action: "project.member_invited",
+          resourceType: "project",
+          resourceId: projectId,
+          projectId,
+          after: { invitedUserId, invitationId: invitation.id },
+        });
+      }
+
+      return { project, invitations };
     });
   }
 
@@ -2523,6 +2891,7 @@ export class JsonFileStorage
 const storageCollectionNames = [
   "users",
   "projects",
+  "projectMembershipInvitations",
   "documents",
   "requirements",
   "artifacts",
@@ -2719,6 +3088,14 @@ export class MongoStorage extends JsonFileStorage {
         { unique: true },
       ),
       this.getCollection("projects").createIndex({ ownerUserId: 1 }),
+      this.getCollection("projectMembershipInvitations").createIndex({
+        projectId: 1,
+        status: 1,
+      }),
+      this.getCollection("projectMembershipInvitations").createIndex({
+        invitedUserId: 1,
+        status: 1,
+      }),
       this.getCollection("documents").createIndex({ projectId: 1 }),
       this.getCollection("requirements").createIndex({ projectId: 1 }),
       this.getCollection("artifacts").createIndex({ projectId: 1 }),
@@ -2741,6 +3118,7 @@ function createEmptyStorage(): StorageFile {
     version: 2,
     users: [],
     projects: [],
+    projectMembershipInvitations: [],
     documents: [],
     requirements: [],
     artifacts: [],

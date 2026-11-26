@@ -18,6 +18,8 @@ Copy-Item .env.example .env
 
 Set `JWT_SECRET` in `.env` to a private random value of at least 32 characters. `MONGODB_URI` defaults to `mongodb://127.0.0.1:27017`, and `MONGODB_DATABASE` defaults to `ai_business_analyst_agent`. For MongoDB Atlas, replace the URI with the connection string from your Atlas cluster and keep the password private. If your configured DNS resolver blocks Atlas SRV lookups, optionally set `MONGODB_DNS_SERVERS=1.1.1.1,8.8.8.8`; this changes DNS servers for the backend Node.js process only. The backend creates its collections and indexes on startup. If MongoDB is empty and the legacy file at `JSON_STORAGE_PATH` exists, its records are imported once; the JSON file is not used after that import. Keep `.env` private and never commit credentials or stored user data.
 
+To email account and project notifications, administrator invitations, and password-reset links, set `EMAIL_PROVIDER=smtp` and configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, and `EMAIL_FROM`. Set `SMTP_USER` and `SMTP_PASS` when your mail server requires authentication. Administrator invitations include the administrator's short message and a single-use account-setup link; the administrator can still copy the link from the UI. If invitation email delivery fails, the setup link remains available in the UI and the delivery failure is shown explicitly. Registration, project membership, approval, decision, and approved-deliverable emails use formal templates; notification delivery failures are logged without undoing the related account or workflow change.
+
 ### Google sign-in setup
 
 Create a Google OAuth 2.0 **Web application** client and set these values exactly:
@@ -88,7 +90,7 @@ Invoke-RestMethod http://localhost:3000/api/v1/health/ready
 ## Endpoints
 
 - `GET /api/v1/health/live` — process liveness.
-- `POST /api/v1/auth/register` — create an account with no assigned roles. The account can sign in but has no application permissions until an administrator assigns a role (email and password of 12–128 characters).
+- `POST /api/v1/auth/register` — create an account with no assigned roles. The registrant receives an account-created confirmation and active administrators receive a review request. The account can sign in but has no application permissions until an administrator assigns a role (email and password of 12–128 characters).
 - `GET /api/v1/health/ready` — readiness, including a MongoDB ping.
 - `POST /api/v1/auth/login` — return a short-lived JWT access token.
 - `GET /api/v1/auth/me` — return the authenticated user; requires `Authorization: Bearer <token>`.
@@ -101,13 +103,14 @@ Invoke-RestMethod http://localhost:3000/api/v1/health/ready
 - `GET /api/v1/artifacts/:id/versions?type=...` — inspect artifact version snapshots.
 - `POST /api/v1/projects/:id/artifacts`, `GET /api/v1/projects/:id/artifacts` — create and list draft artifacts.
 - `PATCH /api/v1/artifacts/:id` — revise an artifact, preserve its prior version, and return it to draft; edits are blocked while an approval is pending.
-- `POST /api/v1/approvals`, `PATCH /api/v1/approvals/:id` — submit for review and record reviewer decisions.
-- `GET /api/v1/projects/:id/approvals`, `GET /api/v1/approvals/:id` — Product Owner approval queue and details. Only a Product Owner can decide; a submitter cannot review their own item.
-- `GET /api/v1/projects/:id/delivery-reviews`, `POST /api/v1/approvals/:id/delivery-feedback` — Delivery Lead queue for pending risk, dependency, and implementation-plan reviews and feedback. Feedback does not change approval decisions.
+- `POST /api/v1/approvals`, `PATCH /api/v1/approvals/:id` — submit for review and record a decision with a required reason. Project Product Owners are emailed on submission; the submitter is emailed the decision and reason. A Delivery Lead email is sent only after approval of a risk, dependency, or implementation plan.
+- `GET /api/v1/projects/:id/approvals`, `GET /api/v1/approvals/:id` — Product Owner approval queue and details. Only a Product Owner can decide; a submitter cannot review their own item. Approval links open the selected item after sign-in.
+- `GET /api/v1/projects/:id/delivery-reviews`, `POST /api/v1/approvals/:id/delivery-feedback` — Delivery Lead queue for risk, dependency, and implementation-plan reviews and feedback. Feedback does not change approval decisions.
+- `GET /api/v1/project-membership-invitations/:id`, `POST /api/v1/project-membership-invitations/:id/respond` — invited users can accept or reject a project membership invitation after signing in. Access is granted only after acceptance.
 - `PATCH /api/v1/users/:id/roles` — admin-only role assignment or removal to pending access; stale role claims are rejected and the last active admin cannot be demoted.
 - `POST /api/v1/users/bootstrap-admin` — one-time first-admin claim, enabled only when `ADMIN_BOOTSTRAP_TOKEN` is configured.
 - `GET /api/v1/admin/users`, `POST /api/v1/admin/users/invitations`, `PATCH /api/v1/admin/users/:id/active` — safe paginated user directory, one-time account invitation links, and reversible account deactivation/reactivation. Invitations create inactive accounts; repeating an invitation for a still-pending account revokes its previous link and issues a new one. The invitee sets their password through the password-setup flow. Admins cannot deactivate themselves or the last active administrator; inactive users lose access immediately, including existing JWT sessions.
-- `GET /api/v1/admin/project-access`, `PUT /api/v1/admin/project-access/:id/members` — admin-only project membership management. Responses contain only project ID/name/status, owner ID, and member IDs; they do not grant project-content access or reuse `project.read`.
+- `GET /api/v1/admin/project-access`, `PUT /api/v1/admin/project-access/:id/members` — admin-only project membership management. Adding a person creates a pending invitation; responses contain project metadata and invitation/email status, and access is granted only after acceptance. Administrators do not receive project-content access or reuse `project.read`.
 - `GET /api/v1/templates?type=...` — list active templates for intake, requirements, epics/stories, acceptance criteria, or risks/roadmaps. `GET/POST /api/v1/admin/templates` and `PATCH /api/v1/admin/templates/:id` provide admin management; templates are deactivated rather than deleted. Intake templates may be selected at project creation; matching workflow templates add server-validated guidance to prompts without bypassing output schemas.
 - `GET /api/v1/admin/audit-events`, `GET /api/v1/admin/audit-events/export?format=json|csv` — paginated append-only event history and full download. Account registration/lifecycle, roles, project/member/export, document, requirement, artifact, workflow, template, approval, and audit-export events are recorded. Audit details do not copy project brief text, document bytes, or template instructions. Events are retained indefinitely; there is no automatic purge or deletion endpoint.
 - `GET /api/v1/projects/:id/export?format=json|markdown|csv` — Business Analyst-only project export without document bytes.
