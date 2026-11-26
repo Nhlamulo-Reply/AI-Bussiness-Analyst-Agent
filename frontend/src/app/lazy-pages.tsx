@@ -106,6 +106,11 @@ export const ProjectExportRoute = lazy(() =>
     default: module.ProjectExportRoute,
   })),
 );
+export const TrashPage = lazy(() =>
+  import("../pages/TrashPage").then((module) => ({
+    default: module.TrashPage,
+  })),
+);
 
 export function SuspendedPage({ children }: { children: ReactNode }) {
   return (

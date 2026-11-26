@@ -175,6 +175,60 @@ export interface ProjectMemberRecord {
   active: boolean;
 }
 
+export const trashRetentionDays = 30;
+export const trashRetentionMilliseconds =
+  trashRetentionDays * 24 * 60 * 60 * 1000;
+
+export type TrashResourceType =
+  | "project"
+  | "document"
+  | "requirement"
+  | "artifact";
+
+export interface TrashItem {
+  id: string;
+  resourceType: TrashResourceType;
+  projectId: string;
+  projectName: string;
+  label: string;
+  trashedAt: string;
+  purgeAfter: string;
+  trashedByUserId: string;
+}
+
+export interface TrashedResource extends TrashItem {
+  ownerUserId: string;
+  createdByUserId?: string;
+}
+
+export class TrashConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TrashConflictError";
+  }
+}
+
+export class TrashRetentionError extends Error {
+  constructor() {
+    super("The 30-day retention period has not ended.");
+    this.name = "TrashRetentionError";
+  }
+}
+
+export class DeliveryFeedbackOwnershipError extends Error {
+  constructor() {
+    super("Only the author may withdraw delivery feedback.");
+    this.name = "DeliveryFeedbackOwnershipError";
+  }
+}
+
+export class DeliveryFeedbackTransitionError extends Error {
+  constructor() {
+    super("Delivery feedback has already been withdrawn.");
+    this.name = "DeliveryFeedbackTransitionError";
+  }
+}
+
 export type ProjectPatch = Partial<
   Pick<
     ProjectRecord,
@@ -358,6 +412,32 @@ export interface Storage extends ProjectRepository {
     documentId: string,
     actorUserId: string,
   ): Promise<DocumentRecord | null>;
+  listTrash(
+    userId: string,
+    includeAll: boolean,
+    page: number,
+    limit: number,
+  ): Promise<Page<TrashItem>>;
+  getTrashedResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+  ): Promise<TrashedResource | null>;
+  trashResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+    actorUserId: string,
+  ): Promise<TrashItem | null>;
+  restoreTrashResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+    actorUserId: string,
+  ): Promise<TrashItem | null>;
+  purgeTrashResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+    actorUserId: string,
+    reason: string,
+  ): Promise<TrashItem | null>;
   createRequirement(requirement: RequirementRecord): Promise<RequirementRecord>;
   createRequirements(
     requirements: RequirementRecord[],
@@ -428,6 +508,11 @@ export interface Storage extends ProjectRepository {
     approvalId: string,
     reviewerUserId: string,
     comments: string,
+  ): Promise<ApprovalRecord | null>;
+  withdrawDeliveryFeedback(
+    approvalId: string,
+    feedbackId: string,
+    reviewerUserId: string,
   ): Promise<ApprovalRecord | null>;
   listVersions(
     artifactType: ApprovalArtifactType,
@@ -824,7 +909,8 @@ export class JsonFileStorage
   ): Promise<Page<ProjectAccessRecord>> {
     const normalizedSearch = search?.trim().toLocaleLowerCase();
     const projects = this.getState()
-      .projects.map((project) => ({
+      .projects.filter((project) => !project.trashedAt)
+      .map((project) => ({
         id: project.id,
         name: project.name,
         status: project.status,
@@ -964,14 +1050,17 @@ export class JsonFileStorage
           (user) => user.id === event.actorUserId,
         )?.email;
         const projectName = projectId
-          ? state.projects.find((project) => project.id === projectId)?.name
-          : undefined;
+          ? (state.projects.find((project) => project.id === projectId)?.name ??
+            event.projectName)
+          : event.projectName;
 
         return {
           ...event,
           ...(actorEmail ? { actorEmail } : {}),
           ...(projectName ? { projectName } : {}),
-          ...(resource.label ? { resourceLabel: resource.label } : {}),
+          ...(resource.label ?? event.resourceLabel
+            ? { resourceLabel: resource.label ?? event.resourceLabel }
+            : {}),
         };
       }),
     };
@@ -1166,7 +1255,11 @@ export class JsonFileStorage
   }
 
   async getProject(projectId: string): Promise<ProjectRecord | null> {
-    return this.findRecord("projects", projectId);
+    const project = await this.findRecord<ProjectRecord, "projects">(
+      "projects",
+      projectId,
+    );
+    return project?.trashedAt ? null : project;
   }
 
   async listProjectsForUser(
@@ -1176,7 +1269,8 @@ export class JsonFileStorage
   ): Promise<Page<ProjectRecord>> {
     const projects = this.getState().projects.filter(
       (project) =>
-        project.ownerUserId === userId || project.members.includes(userId),
+        !project.trashedAt &&
+        (project.ownerUserId === userId || project.members.includes(userId)),
     );
     return makePage(projects, page, limit);
   }
@@ -1243,13 +1337,18 @@ export class JsonFileStorage
       this.getState().documents.filter(
         (document) =>
           document.projectId === projectId &&
+          !document.trashedAt &&
           (includeArchived || document.status === "uploaded"),
       ),
     );
   }
 
   async getDocument(documentId: string): Promise<DocumentRecord | null> {
-    return this.findRecord("documents", documentId);
+    const document = await this.findRecord<DocumentRecord, "documents">(
+      "documents",
+      documentId,
+    );
+    return document?.trashedAt ? null : document;
   }
 
   archiveDocument(
@@ -1312,6 +1411,275 @@ export class JsonFileStorage
     });
   }
 
+  async listTrash(
+    userId: string,
+    includeAll: boolean,
+    page: number,
+    limit: number,
+  ): Promise<Page<TrashItem>> {
+    const state = this.getState();
+    const items = (
+      [
+        ...state.projects.map((record) =>
+          createTrashItem(state, "project", record.id),
+        ),
+        ...state.documents.map((record) =>
+          createTrashItem(state, "document", record.id),
+        ),
+        ...state.requirements.map((record) =>
+          createTrashItem(state, "requirement", record.id),
+        ),
+        ...state.artifacts.map((record) =>
+          createTrashItem(state, "artifact", record.id),
+        ),
+      ] as Array<TrashItem | null>
+    )
+      .filter((item): item is TrashItem => item !== null)
+      .filter((item) => {
+        if (includeAll) return true;
+        const project = state.projects.find(
+          (record) => record.id === item.projectId,
+        );
+        return Boolean(
+          project &&
+            (project.ownerUserId === userId ||
+              project.members.includes(userId)) &&
+            (item.trashedByUserId === userId ||
+              project.ownerUserId === userId),
+        );
+      })
+      .sort((left, right) => right.trashedAt.localeCompare(left.trashedAt));
+    return makePage(items, page, limit);
+  }
+
+  async getTrashedResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+  ): Promise<TrashedResource | null> {
+    const state = this.getState();
+    const item = createTrashItem(state, resourceType, resourceId);
+    const record = getTrashRecord(state, resourceType, resourceId);
+    if (!item || !record) return null;
+    const project = state.projects.find(
+      (candidate) => candidate.id === item.projectId,
+    );
+    if (!project) return null;
+    return {
+      ...item,
+      ownerUserId: project.ownerUserId,
+      ...("createdByUserId" in record
+        ? { createdByUserId: record.createdByUserId }
+        : {}),
+    };
+  }
+
+  trashResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+    actorUserId: string,
+  ): Promise<TrashItem | null> {
+    return this.update((state) => {
+      const record = getTrashRecord(state, resourceType, resourceId);
+      if (!record || record.trashedAt) return null;
+      if (
+        (resourceType === "requirement" || resourceType === "artifact") &&
+        !canTrashDraft(state, resourceType, resourceId, actorUserId)
+      ) {
+        throw new TrashConflictError(
+          "Only an author's unsubmitted draft without approval history can be moved to Trash.",
+        );
+      }
+
+      const now = new Date().toISOString();
+      record.trashedAt = now;
+      record.trashedByUserId = actorUserId;
+      if ("updatedAt" in record) record.updatedAt = now;
+      const item = createTrashItem(state, resourceType, resourceId);
+      if (!item) return null;
+      appendAuditEvent(state, {
+        actorUserId,
+        action: `${resourceType}.trashed` as AuditEventRecord["action"],
+        resourceType,
+        resourceId,
+        projectId: item.projectId,
+        resourceLabel: item.label,
+        projectName: item.projectName,
+        after: { trashedAt: item.trashedAt, purgeAfter: item.purgeAfter },
+      });
+      return item;
+    });
+  }
+
+  restoreTrashResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+    actorUserId: string,
+  ): Promise<TrashItem | null> {
+    return this.update((state) => {
+      const item = createTrashItem(state, resourceType, resourceId);
+      const record = getTrashRecord(state, resourceType, resourceId);
+      if (!item || !record) return null;
+      delete record.trashedAt;
+      delete record.trashedByUserId;
+      if ("updatedAt" in record) record.updatedAt = new Date().toISOString();
+      appendAuditEvent(state, {
+        actorUserId,
+        action: `${resourceType}.restored` as AuditEventRecord["action"],
+        resourceType,
+        resourceId,
+        projectId: item.projectId,
+        resourceLabel: item.label,
+        projectName: item.projectName,
+        before: { trashedAt: item.trashedAt },
+      });
+      return item;
+    });
+  }
+
+  purgeTrashResource(
+    resourceType: TrashResourceType,
+    resourceId: string,
+    actorUserId: string,
+    reason: string,
+  ): Promise<TrashItem | null> {
+    return this.update((state) => {
+      const item = createTrashItem(state, resourceType, resourceId);
+      if (!item) return null;
+      if (Date.now() < Date.parse(item.purgeAfter)) {
+        throw new TrashRetentionError();
+      }
+      if (
+        (resourceType === "requirement" || resourceType === "artifact") &&
+        hasApprovalHistory(state, resourceType, resourceId)
+      ) {
+        throw new TrashConflictError(
+          "This record has approval history and cannot be permanently deleted.",
+        );
+      }
+      if (
+        resourceType === "document" &&
+        state.requirements.some((requirement) =>
+          requirement.traceability.documentIds.includes(resourceId),
+        )
+      ) {
+        throw new TrashConflictError(
+          "This document is referenced by project work and cannot be permanently deleted.",
+        );
+      }
+      if (
+        resourceType === "requirement" &&
+        state.artifacts.some(
+          (artifact) => artifact.requirementIds.includes(resourceId),
+        )
+      ) {
+        throw new TrashConflictError(
+          "This requirement is referenced by a deliverable and cannot be permanently deleted.",
+        );
+      }
+      if (
+        resourceType === "project" &&
+        state.approvals.some((approval) => approval.projectId === resourceId)
+      ) {
+        throw new TrashConflictError(
+          "This project has approval history and cannot be permanently deleted.",
+        );
+      }
+
+      preserveAuditLabels(
+        state,
+        resourceType,
+        resourceId,
+        item.label,
+        item.projectId,
+        item.projectName,
+      );
+      if (resourceType === "project") {
+        for (const document of state.documents.filter(
+          (candidate) => candidate.projectId === resourceId,
+        )) {
+          preserveAuditLabels(
+            state,
+            "document",
+            document.id,
+            document.fileName,
+            resourceId,
+            item.projectName,
+          );
+        }
+        for (const requirement of state.requirements.filter(
+          (candidate) => candidate.projectId === resourceId,
+        )) {
+          preserveAuditLabels(
+            state,
+            "requirement",
+            requirement.id,
+            requirement.title,
+            resourceId,
+            item.projectName,
+          );
+        }
+        for (const artifact of state.artifacts.filter(
+          (candidate) => candidate.projectId === resourceId,
+        )) {
+          preserveAuditLabels(
+            state,
+            "artifact",
+            artifact.id,
+            artifact.title,
+            resourceId,
+            item.projectName,
+          );
+        }
+        state.projects = state.projects.filter(
+          (candidate) => candidate.id !== resourceId,
+        );
+        state.documents = state.documents.filter(
+          (candidate) => candidate.projectId !== resourceId,
+        );
+        state.requirements = state.requirements.filter(
+          (candidate) => candidate.projectId !== resourceId,
+        );
+        state.artifacts = state.artifacts.filter(
+          (candidate) => candidate.projectId !== resourceId,
+        );
+        state.versions = state.versions.filter(
+          (version) => version.projectId !== resourceId,
+        );
+        state.executions = state.executions.filter(
+          (execution) => execution.projectId !== resourceId,
+        );
+      } else {
+        preserveAuditLabels(
+          state,
+          resourceType,
+          resourceId,
+          item.label,
+          item.projectId,
+          item.projectName,
+        );
+        removeTrashRecord(state, resourceType, resourceId);
+        if (resourceType === "requirement" || resourceType === "artifact") {
+          state.versions = state.versions.filter(
+            (version) =>
+              version.artifactType !== resourceType ||
+              version.artifactId !== resourceId,
+          );
+        }
+      }
+      appendAuditEvent(state, {
+        actorUserId,
+        action: `${resourceType}.purged` as AuditEventRecord["action"],
+        resourceType,
+        resourceId,
+        projectId: item.projectId,
+        resourceLabel: item.label,
+        projectName: item.projectName,
+        after: { reason },
+      });
+      return item;
+    });
+  }
+
   async createRequirement(
     requirement: RequirementRecord,
   ): Promise<RequirementRecord> {
@@ -1363,7 +1731,11 @@ export class JsonFileStorage
   async getRequirement(
     requirementId: string,
   ): Promise<RequirementRecord | null> {
-    return this.findRecord("requirements", requirementId);
+    const requirement = await this.findRecord<
+      RequirementRecord,
+      "requirements"
+    >("requirements", requirementId);
+    return requirement?.trashedAt ? null : requirement;
   }
 
   async listRequirements(
@@ -1372,7 +1744,8 @@ export class JsonFileStorage
     limit: number,
   ): Promise<Page<RequirementRecord>> {
     const requirements = this.getState().requirements.filter(
-      (requirement) => requirement.projectId === projectId,
+      (requirement) =>
+        requirement.projectId === projectId && !requirement.trashedAt,
     );
     return makePage(requirements, page, limit);
   }
@@ -1463,14 +1836,17 @@ export class JsonFileStorage
       "artifacts",
       artifactId,
     );
-    return artifact?.type === artifactType ? artifact : null;
+    return artifact?.type === artifactType && !artifact.trashedAt
+      ? artifact
+      : null;
   }
 
   async getArtifactById(artifactId: string): Promise<ArtifactRecord | null> {
-    return this.findRecord<ArtifactRecord, "artifacts">(
+    const artifact = await this.findRecord<ArtifactRecord, "artifacts">(
       "artifacts",
       artifactId,
     );
+    return artifact?.trashedAt ? null : artifact;
   }
 
   async listArtifacts(
@@ -1484,6 +1860,7 @@ export class JsonFileStorage
       this.getState().artifacts.filter(
         (artifact) =>
           artifact.projectId === projectId &&
+          !artifact.trashedAt &&
           (!allowedTypes || allowedTypes.includes(artifact.type)) &&
           (!requestedType || artifact.type === requestedType),
       ),
@@ -1661,6 +2038,7 @@ export class JsonFileStorage
       const createdAt = new Date().toISOString();
       approval.deliveryFeedback = approval.deliveryFeedback ?? [];
       approval.deliveryFeedback.push({
+        id: randomUUID(),
         reviewerUserId,
         comments,
         createdAt,
@@ -1673,6 +2051,43 @@ export class JsonFileStorage
         resourceId: approval.id,
         projectId: approval.projectId,
         after: { feedbackLength: approval.deliveryFeedback.length },
+      });
+      return approval;
+    });
+  }
+
+  withdrawDeliveryFeedback(
+    approvalId: string,
+    feedbackId: string,
+    reviewerUserId: string,
+  ): Promise<ApprovalRecord | null> {
+    return this.update((state) => {
+      const approval = state.approvals.find(
+        (record) => record.id === approvalId,
+      );
+      if (!approval) return null;
+      const feedback = approval.deliveryFeedback?.find(
+        (entry) => entry.id === feedbackId,
+      );
+      if (!feedback) return null;
+      if (feedback.reviewerUserId !== reviewerUserId) {
+        throw new DeliveryFeedbackOwnershipError();
+      }
+      if (feedback.withdrawnAt) {
+        throw new DeliveryFeedbackTransitionError();
+      }
+      const withdrawnAt = new Date().toISOString();
+      feedback.withdrawnAt = withdrawnAt;
+      feedback.withdrawnByUserId = reviewerUserId;
+      approval.updatedAt = withdrawnAt;
+      appendAuditEvent(state, {
+        actorUserId: reviewerUserId,
+        action: "delivery.feedback_withdrawn",
+        resourceType: "approval",
+        resourceId: approval.id,
+        projectId: approval.projectId,
+        before: { feedbackId, status: "active" },
+        after: { feedbackId, status: "withdrawn" },
       });
       return approval;
     });
@@ -1867,14 +2282,20 @@ export class JsonFileStorage
       documents: state.documents
         .filter(
           (document) =>
-            document.projectId === projectId && document.status === "uploaded",
+            document.projectId === projectId &&
+            !document.trashedAt &&
+            document.status === "uploaded",
         )
         .map(({ contentBase64: _contentBase64, ...document }) => document),
       requirements: structuredClone(
-        state.requirements.filter((record) => record.projectId === projectId),
+        state.requirements.filter(
+          (record) => record.projectId === projectId && !record.trashedAt,
+        ),
       ),
       artifacts: structuredClone(
-        state.artifacts.filter((record) => record.projectId === projectId),
+        state.artifacts.filter(
+          (record) => record.projectId === projectId && !record.trashedAt,
+        ),
       ),
       approvals: structuredClone(
         state.approvals.filter((record) => record.projectId === projectId),
@@ -2017,6 +2438,7 @@ export class JsonFileStorage
     return this.getState().projects.some(
       (project) =>
         project.id === projectId &&
+        !project.trashedAt &&
         (project.ownerUserId === userId || project.members.includes(userId)),
     );
   }
@@ -2404,6 +2826,150 @@ function appendAuditEvent(
   });
 }
 
+type TrashRecord =
+  | ProjectRecord
+  | DocumentRecord
+  | RequirementRecord
+  | ArtifactRecord;
+
+function getTrashRecord(
+  state: StorageFile,
+  resourceType: TrashResourceType,
+  resourceId: string,
+): TrashRecord | undefined {
+  switch (resourceType) {
+    case "project":
+      return state.projects.find((record) => record.id === resourceId);
+    case "document":
+      return state.documents.find((record) => record.id === resourceId);
+    case "requirement":
+      return state.requirements.find((record) => record.id === resourceId);
+    case "artifact":
+      return state.artifacts.find((record) => record.id === resourceId);
+  }
+}
+
+function createTrashItem(
+  state: StorageFile,
+  resourceType: TrashResourceType,
+  resourceId: string,
+): TrashItem | null {
+  const record = getTrashRecord(state, resourceType, resourceId);
+  if (!record?.trashedAt || !record.trashedByUserId) return null;
+  const projectId =
+    resourceType === "project"
+      ? record.id
+      : "projectId" in record
+        ? record.projectId
+        : "";
+  const project = state.projects.find((candidate) => candidate.id === projectId);
+  if (!project) return null;
+  const label =
+    "fileName" in record
+      ? record.fileName
+      : "title" in record
+        ? resourceType === "artifact" && "type" in record
+          ? record.type
+          : record.title
+        : "name" in record
+          ? record.name
+          : "";
+  return {
+    id: record.id,
+    resourceType,
+    projectId,
+    projectName: project.name,
+    label,
+    trashedAt: record.trashedAt,
+    purgeAfter: new Date(
+      Date.parse(record.trashedAt) + trashRetentionMilliseconds,
+    ).toISOString(),
+    trashedByUserId: record.trashedByUserId,
+  };
+}
+
+function hasApprovalHistory(
+  state: StorageFile,
+  resourceType: "requirement" | "artifact",
+  resourceId: string,
+): boolean {
+  const artifactType =
+    resourceType === "requirement" ? "requirement" : undefined;
+  return state.approvals.some(
+    (approval) =>
+      approval.artifactId === resourceId &&
+      (artifactType
+        ? approval.artifactType === artifactType
+        : approval.artifactType !== "requirement"),
+  );
+}
+
+function canTrashDraft(
+  state: StorageFile,
+  resourceType: "requirement" | "artifact",
+  resourceId: string,
+  actorUserId: string,
+): boolean {
+  const record =
+    resourceType === "requirement"
+      ? state.requirements.find((candidate) => candidate.id === resourceId)
+      : state.artifacts.find((candidate) => candidate.id === resourceId);
+  return Boolean(
+    record &&
+      record.status === "draft" &&
+      record.createdByUserId === actorUserId &&
+      !hasApprovalHistory(state, resourceType, resourceId),
+  );
+}
+
+function removeTrashRecord(
+  state: StorageFile,
+  resourceType: TrashResourceType,
+  resourceId: string,
+): void {
+  switch (resourceType) {
+    case "project":
+      state.projects = state.projects.filter(
+        (record) => record.id !== resourceId,
+      );
+      break;
+    case "document":
+      state.documents = state.documents.filter(
+        (record) => record.id !== resourceId,
+      );
+      break;
+    case "requirement":
+      state.requirements = state.requirements.filter(
+        (record) => record.id !== resourceId,
+      );
+      break;
+    case "artifact":
+      state.artifacts = state.artifacts.filter(
+        (record) => record.id !== resourceId,
+      );
+      break;
+  }
+}
+
+function preserveAuditLabels(
+  state: StorageFile,
+  resourceType: TrashResourceType,
+  resourceId: string,
+  label: string,
+  projectId: string,
+  projectName: string,
+): void {
+  for (const event of state.auditEvents) {
+    if (event.projectId === projectId) event.projectName = projectName;
+    if (
+      event.resourceType === resourceType &&
+      event.resourceId === resourceId
+    ) {
+      event.resourceLabel = label;
+    }
+  }
+}
+
 function resolveAuditResource(
   event: AuditEventRecord,
   state: StorageFile,
@@ -2417,25 +2983,37 @@ function resolveAuditResource(
       const project = state.projects.find(
         (record) => record.id === event.resourceId,
       );
-      return { label: project?.name, projectId: event.resourceId };
+      return {
+        label: project?.name ?? event.resourceLabel,
+        projectId: event.resourceId,
+      };
     }
     case "document": {
       const document = state.documents.find(
         (record) => record.id === event.resourceId,
       );
-      return { label: document?.fileName, projectId: document?.projectId };
+      return {
+        label: document?.fileName ?? event.resourceLabel,
+        projectId: document?.projectId ?? event.projectId,
+      };
     }
     case "requirement": {
       const requirement = state.requirements.find(
         (record) => record.id === event.resourceId,
       );
-      return { label: requirement?.title, projectId: requirement?.projectId };
+      return {
+        label: requirement?.title ?? event.resourceLabel,
+        projectId: requirement?.projectId ?? event.projectId,
+      };
     }
     case "artifact": {
       const artifact = state.artifacts.find(
         (record) => record.id === event.resourceId,
       );
-      return { label: artifact?.type, projectId: artifact?.projectId };
+      return {
+        label: artifact?.type ?? event.resourceLabel,
+        projectId: artifact?.projectId ?? event.projectId,
+      };
     }
     case "execution": {
       const execution = state.executions.find(

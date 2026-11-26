@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Card } from "../ui/Card";
+import { MoveToBinMenu } from "../ui/MoveToBinMenu";
 import { StatusBadge } from "../ui/StatusBadge";
 import {
   formatProjectDate,
@@ -18,9 +19,16 @@ import { getProjectSummary } from "../../features/projects/project.schemas";
 interface ProjectCardProps {
   project: Project;
   compact?: boolean;
+  onMoveToBin?: () => void;
+  binActionDisabled?: boolean;
 }
 
-export function ProjectCard({ project, compact = false }: ProjectCardProps) {
+export function ProjectCard({
+  project,
+  compact = false,
+  onMoveToBin,
+  binActionDisabled = false,
+}: ProjectCardProps) {
   const projectPath = getProjectPath(project.id);
 
   return (
@@ -78,6 +86,13 @@ export function ProjectCard({ project, compact = false }: ProjectCardProps) {
           Open Project
           <ArrowUpRight aria-hidden="true" size={14} />
         </Link>
+        {onMoveToBin ? (
+          <MoveToBinMenu
+            disabled={binActionDisabled}
+            itemLabel={`project ${project.name}`}
+            onMoveToBin={onMoveToBin}
+          />
+        ) : null}
       </div>
     </Card>
   );

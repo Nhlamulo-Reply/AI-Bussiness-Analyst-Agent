@@ -24,6 +24,8 @@ import { ErrorPanel } from "../components/ui/ErrorPanel";
 import { LoadingSkeleton } from "../components/ui/LoadingSkeleton";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { Dialog } from "../components/ui/Dialog";
+import { TrashConfirmationDialog } from "../components/ui/TrashConfirmationDialog";
+import { MoveToBinMenu } from "../components/ui/MoveToBinMenu";
 import { useAuth } from "../features/auth/useAuth";
 import { hasPermission } from "../features/auth/permissions";
 import {
@@ -41,6 +43,7 @@ import {
 } from "../features/documents/document.schemas";
 import { useProject } from "../features/projects/project-queries";
 import { ApiError, getApiErrorPresentation } from "../lib/api-client";
+import { useMoveToTrash } from "../features/trash/trash-queries";
 
 const fileAccept = [
   ".pdf",
@@ -81,6 +84,7 @@ export function DocumentLibraryPage() {
   const [archiveTarget, setArchiveTarget] = useState<DocumentMetadata | null>(
     null,
   );
+  const [trashTarget, setTrashTarget] = useState<DocumentMetadata | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const projectQuery = useProject(projectId);
   const isProjectOwner =
@@ -98,6 +102,7 @@ export function DocumentLibraryPage() {
   const uploadMutation = useUploadProjectDocument(projectId, setUploadProgress);
   const archiveMutation = useArchiveProjectDocument(projectId);
   const restoreMutation = useRestoreProjectDocument(projectId);
+  const trashMutation = useMoveToTrash();
   const documents = documentsQuery.data ?? [];
   useEffect(() => () => uploadControllerRef.current?.abort(), [projectId]);
   const duplicateFileName = selectedFile
@@ -201,6 +206,11 @@ export function DocumentLibraryPage() {
           restoreMutation.error,
           "The document couldn't be restored. Please try again.",
         )
+      : trashMutation.isError
+        ? getApiErrorPresentation(
+            trashMutation.error,
+            "The document couldn't be moved to the bin. Please try again.",
+          )
       : undefined;
 
   return (
@@ -621,34 +631,48 @@ export function DocumentLibraryPage() {
                         </code>
                       </div>
                       {canManageDocuments ? (
-                        <Button
-                          disabled={
-                            archiveMutation.isPending ||
-                            restoreMutation.isPending
-                          }
-                          leadingIcon={
-                            document.status === "archived" ? (
-                              <ArchiveRestore aria-hidden="true" size={15} />
-                            ) : (
-                              <Archive aria-hidden="true" size={15} />
-                            )
-                          }
-                          onClick={() => {
-                            if (document.status === "archived") {
-                              restoreMutation.mutate(document.id);
-                            } else {
-                              setArchiveTarget(document);
-                              archiveMutation.reset();
+                        <div className="document-card__actions">
+                          <Button
+                            disabled={
+                              archiveMutation.isPending ||
+                              restoreMutation.isPending ||
+                              trashMutation.isPending
                             }
-                          }}
-                          size="small"
-                          type="button"
-                          variant="secondary"
-                        >
-                          {document.status === "archived"
-                            ? "Restore"
-                            : "Archive"}
-                        </Button>
+                            leadingIcon={
+                              document.status === "archived" ? (
+                                <ArchiveRestore
+                                  aria-hidden="true"
+                                  size={15}
+                                />
+                              ) : (
+                                <Archive aria-hidden="true" size={15} />
+                              )
+                            }
+                            onClick={() => {
+                              if (document.status === "archived") {
+                                restoreMutation.mutate(document.id);
+                              } else {
+                                setArchiveTarget(document);
+                                archiveMutation.reset();
+                              }
+                            }}
+                            size="small"
+                            type="button"
+                            variant="secondary"
+                          >
+                            {document.status === "archived"
+                              ? "Restore"
+                              : "Archive"}
+                          </Button>
+                          <MoveToBinMenu
+                            disabled={trashMutation.isPending}
+                            itemLabel={`document ${document.fileName}`}
+                            onMoveToBin={() => {
+                              trashMutation.reset();
+                              setTrashTarget(document);
+                            }}
+                          />
+                        </div>
                       ) : null}
                     </Card>
                   </li>
@@ -666,9 +690,11 @@ export function DocumentLibraryPage() {
           ) : null}
 
           <p className="document-library__footnote">
-            Only the project owner can archive or restore documents. Archived
-            files are hidden from standard lists, workflows, and exports while
-            their contents remain stored. Permanent deletion is not available.
+            Only the project owner can archive, restore, or move documents to
+            the bin. Archived files are hidden from standard lists, workflows,
+            and exports while their contents remain stored. Bin items can be
+            restored for 30 days before an administrator may permanently delete
+            them, subject to project-reference safeguards.
           </p>
         </section>
       </div>
@@ -720,6 +746,40 @@ export function DocumentLibraryPage() {
           </div>
         ) : null}
       </Dialog>
+      <TrashConfirmationDialog
+        error={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The document couldn't be moved to the bin.",
+              ).message
+            : undefined
+        }
+        isPending={trashMutation.isPending}
+        itemLabel={trashTarget?.fileName ?? ""}
+        onConfirm={() => {
+          if (!trashTarget) return;
+          trashMutation.mutate(
+            { resourceType: "document", resourceId: trashTarget.id },
+            { onSuccess: () => setTrashTarget(null) },
+          );
+        }}
+        onOpenChange={(open) => {
+          if (!open && !trashMutation.isPending) {
+            setTrashTarget(null);
+            trashMutation.reset();
+          }
+        }}
+        open={Boolean(trashTarget)}
+        requestId={
+          trashMutation.isError
+            ? getApiErrorPresentation(
+                trashMutation.error,
+                "The document couldn't be moved to the bin.",
+              ).requestId
+            : undefined
+        }
+      />
     </section>
   );
 }

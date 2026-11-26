@@ -57,10 +57,21 @@ export const projectSchema = z
     ownerUserId: z.string().min(1),
     members: z.array(z.string().min(1)),
     status: z.enum(["active", "archived"]),
+    trashedAt: timestampSchema.optional(),
+    trashedByUserId: z.string().min(1).optional(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((project, context) => {
+    if ((project.trashedAt === undefined) !== (project.trashedByUserId === undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["trashedAt"],
+        message: "Trashed projects require both trash metadata fields.",
+      });
+    }
+  });
 
 export const templateTypeSchema = z.enum([
   "project_intake",
@@ -100,6 +111,8 @@ export const documentRecordSchema = z
     status: z.enum(["uploaded", "archived"]),
     archivedAt: timestampSchema.optional(),
     archivedByUserId: z.string().min(1).optional(),
+    trashedAt: timestampSchema.optional(),
+    trashedByUserId: z.string().min(1).optional(),
     createdAt: timestampSchema,
   })
   .strict()
@@ -116,6 +129,16 @@ export const documentRecordSchema = z
         path: ["archivedAt"],
         message:
           "Archived documents require archive metadata and active documents must not retain it.",
+      });
+    }
+    if (
+      (document.trashedAt === undefined) !==
+      (document.trashedByUserId === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["trashedAt"],
+        message: "Trashed documents require both trash metadata fields.",
       });
     }
   });
@@ -154,10 +177,24 @@ export const requirementSchema = z
       .strict(),
     version: z.number().int().positive(),
     createdByUserId: z.string().min(1),
+    trashedAt: timestampSchema.optional(),
+    trashedByUserId: z.string().min(1).optional(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((requirement, context) => {
+    if (
+      (requirement.trashedAt === undefined) !==
+      (requirement.trashedByUserId === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["trashedAt"],
+        message: "Trashed requirements require both trash metadata fields.",
+      });
+    }
+  });
 
 export const artifactSchema = z
   .object({
@@ -171,10 +208,24 @@ export const artifactSchema = z
     data: z.record(z.string(), z.unknown()),
     version: z.number().int().positive(),
     createdByUserId: z.string().min(1),
+    trashedAt: timestampSchema.optional(),
+    trashedByUserId: z.string().min(1).optional(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((artifact, context) => {
+    if (
+      (artifact.trashedAt === undefined) !==
+      (artifact.trashedByUserId === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["trashedAt"],
+        message: "Trashed artifacts require both trash metadata fields.",
+      });
+    }
+  });
 
 export const approvalSchema = z
   .object({
@@ -191,11 +242,27 @@ export const approvalSchema = z
       .array(
         z
           .object({
+            id: z.string().min(1).optional(),
             reviewerUserId: z.string().min(1),
             comments: z.string().trim().min(1).max(4000),
             createdAt: timestampSchema,
+            withdrawnAt: timestampSchema.optional(),
+            withdrawnByUserId: z.string().min(1).optional(),
           })
-          .strict(),
+          .strict()
+          .superRefine((feedback, context) => {
+            if (
+              (feedback.withdrawnAt === undefined) !==
+              (feedback.withdrawnByUserId === undefined)
+            ) {
+              context.addIssue({
+                code: "custom",
+                path: ["withdrawnAt"],
+                message:
+                  "Withdrawn delivery feedback requires both withdrawal metadata fields.",
+              });
+            }
+          }),
       )
       .optional(),
     createdAt: timestampSchema,
@@ -235,13 +302,24 @@ export const auditEventSchema = z
       "project.exported",
       "project.updated",
       "project.members_changed",
+      "project.trashed",
+      "project.restored",
+      "project.purged",
       "document.uploaded",
       "document.archived",
       "document.restored",
+      "document.trashed",
+      "document.purged",
       "requirement.created",
       "requirement.updated",
+      "requirement.trashed",
+      "requirement.restored",
+      "requirement.purged",
       "artifact.created",
       "artifact.updated",
+      "artifact.trashed",
+      "artifact.restored",
+      "artifact.purged",
       "workflow.started",
       "template.created",
       "template.updated",
@@ -250,6 +328,7 @@ export const auditEventSchema = z
       "approval.submitted",
       "approval.decided",
       "delivery.feedback_added",
+      "delivery.feedback_withdrawn",
       "password_reset.requested",
       "password_reset.completed",
       "google.login",
@@ -267,7 +346,9 @@ export const auditEventSchema = z
       "audit_event",
     ]),
     resourceId: z.string().min(1),
+    resourceLabel: z.string().min(1).optional(),
     projectId: z.string().min(1).optional(),
+    projectName: z.string().min(1).optional(),
     before: z.record(z.string(), z.unknown()).optional(),
     after: z.record(z.string(), z.unknown()).optional(),
     createdAt: timestampSchema,
