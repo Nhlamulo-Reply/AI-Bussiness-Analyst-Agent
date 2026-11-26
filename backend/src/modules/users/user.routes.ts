@@ -17,11 +17,13 @@ import {
   bootstrapAdminBodySchema,
   updateUserRolesBodySchema,
 } from "../domain/domain.schemas";
+import type { ApplicationEmailNotifications } from "../../integrations/email/application-email-notifications";
 
 export function createUserRouter(
   storage: Storage,
   jwtSecret: string,
   adminBootstrapToken?: AppConfig["adminBootstrapToken"],
+  emailNotifications?: ApplicationEmailNotifications,
 ): Router {
   const router = Router();
   router.use(authenticate(jwtSecret, storage));
@@ -96,9 +98,17 @@ export function createUserRouter(
           );
         }
         const { roles } = updateUserRolesBodySchema.parse(request.body);
+        const previousUser = await storage.findById(userId);
         const user = await storage.updateUserRoles(userId, roles, actor.id);
         if (!user) {
           throw new AppError(404, "NOT_FOUND", "User not found.");
+        }
+        if (
+          previousUser?.active &&
+          previousUser.roles.length === 0 &&
+          user.roles.length > 0
+        ) {
+          await emailNotifications?.accountAccessGranted(user);
         }
         response.status(200).json({
           success: true,

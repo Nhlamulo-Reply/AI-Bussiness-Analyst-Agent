@@ -9,6 +9,7 @@ import type { AppConfig } from "../src/config/env";
 import { JsonFileStorage } from "../src/config/storage";
 import { openApiDocument } from "../src/docs/openapi";
 import type { UserRecord } from "../src/modules/auth/user.repository";
+import type { EmailProvider } from "../src/integrations/email/email-provider";
 
 const config: AppConfig = {
   environment: "test",
@@ -32,6 +33,26 @@ const config: AppConfig = {
 let app: ReturnType<typeof createApp>;
 let storage: JsonFileStorage;
 let temporaryDirectory: string;
+let sendInvitation: jest.MockedFunction<EmailProvider["sendInvitation"]>;
+let sendAccountCreated: jest.MockedFunction<EmailProvider["sendAccountCreated"]>;
+let sendAdminAccountReview: jest.MockedFunction<
+  EmailProvider["sendAdminAccountReview"]
+>;
+let sendAccountAccessGranted: jest.MockedFunction<
+  EmailProvider["sendAccountAccessGranted"]
+>;
+let sendProjectMembershipInvitation: jest.MockedFunction<
+  EmailProvider["sendProjectMembershipInvitation"]
+>;
+let sendApprovalSubmission: jest.MockedFunction<
+  EmailProvider["sendApprovalSubmission"]
+>;
+let sendApprovalDecision: jest.MockedFunction<
+  EmailProvider["sendApprovalDecision"]
+>;
+let sendDeliverableApproved: jest.MockedFunction<
+  EmailProvider["sendDeliverableApproved"]
+>;
 
 beforeEach(async () => {
   temporaryDirectory = await mkdtemp(join(tmpdir(), "business-analyst-api-"));
@@ -39,7 +60,30 @@ beforeEach(async () => {
     jsonStoragePath: join(temporaryDirectory, "store.json"),
   });
   await storage.connect();
-  app = createApp({ config, storage, users: storage });
+  sendInvitation = jest.fn().mockResolvedValue("sent");
+  sendAccountCreated = jest.fn().mockResolvedValue("sent");
+  sendAdminAccountReview = jest.fn().mockResolvedValue("sent");
+  sendAccountAccessGranted = jest.fn().mockResolvedValue("sent");
+  sendProjectMembershipInvitation = jest.fn().mockResolvedValue("sent");
+  sendApprovalSubmission = jest.fn().mockResolvedValue("sent");
+  sendApprovalDecision = jest.fn().mockResolvedValue("sent");
+  sendDeliverableApproved = jest.fn().mockResolvedValue("sent");
+  app = createApp({
+    config,
+    storage,
+    users: storage,
+    emailProvider: {
+      sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+      sendAccountCreated,
+      sendAdminAccountReview,
+      sendAccountAccessGranted,
+      sendInvitation,
+      sendProjectMembershipInvitation,
+      sendApprovalSubmission,
+      sendApprovalDecision,
+      sendDeliverableApproved,
+    },
+  });
 });
 
 afterEach(async () => {
@@ -57,6 +101,40 @@ describe("backend foundation", () => {
     expect(live.headers["x-request-id"]).toBe(live.body.requestId);
     expect(ready.status).toBe(200);
     expect(ready.body.data.storage).toBe("json");
+  });
+
+  it("emails the registrant and every active administrator for account review", async () => {
+    const administrator = await registerUser("review-admin@example.com");
+    await storage.updateUserRoles(administrator.id, ["admin"]);
+    const administratorToken = await login("review-admin@example.com");
+
+    const registration = await request(app)
+      .post("/api/v1/auth/register")
+      .send({
+        email: "review-applicant@example.com",
+        password: "a-long-test-password",
+      });
+
+    expect(registration.status).toBe(201);
+    expect(sendAccountCreated).toHaveBeenCalledWith(
+      "review-applicant@example.com",
+      expect.stringContaining("/pending-access"),
+    );
+    expect(sendAdminAccountReview).toHaveBeenCalledWith(
+      "review-admin@example.com",
+      "review-applicant@example.com",
+      expect.stringContaining("/app/admin"),
+    );
+    const accessGranted = await request(app)
+      .patch(`/api/v1/users/${registration.body.data.user.id}/roles`)
+      .set("Authorization", `Bearer ${administratorToken}`)
+      .send({ roles: ["business_analyst"] });
+    expect(accessGranted.status).toBe(200);
+    expect(sendAccountAccessGranted).toHaveBeenCalledWith(
+      "review-applicant@example.com",
+      ["business_analyst"],
+      expect.stringContaining("/login"),
+    );
   });
 
   it("reports readiness failure without exposing storage errors", async () => {
@@ -80,6 +158,11 @@ describe("backend foundation", () => {
       error: { code: "VALIDATION_ERROR", requestId: "validation-test" },
     });
     expect(response.body.error.details.length).toBeGreaterThan(0);
+
+    const invalidLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "not-an-email", password: "a-long-test-password" });
+    expect(invalidLogin.status).toBe(400);
   });
 
   it("returns a validation error for malformed JSON", async () => {
@@ -110,6 +193,11 @@ describe("backend foundation", () => {
       email: "analyst@example.com",
       roles: [],
     });
+    expect(sendAccountCreated).toHaveBeenCalledWith(
+      "analyst@example.com",
+      expect.stringContaining("/pending-access"),
+    );
+    expect(sendAdminAccountReview).not.toHaveBeenCalled();
     expect(profile.status).toBe(200);
     expect(profile.body.data.user.email).toBe("analyst@example.com");
     expect(profile.body.data.user.roles).toEqual([]);
@@ -232,6 +320,15 @@ describe("backend foundation", () => {
       .patch(`/api/v1/projects/${project.id}/members`)
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ memberIds: [member.id] });
+    const membershipInvitation = memberUpdate.body.data.invitations[0] as {
+      invitationId: string;
+    };
+    await request(app)
+      .post(
+        `/api/v1/project-membership-invitations/${membershipInvitation.invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ decision: "accepted" });
     const forbiddenUpdate = await request(app)
       .patch(`/api/v1/projects/${project.id}`)
       .set("Authorization", `Bearer ${member.token}`)
@@ -354,10 +451,16 @@ describe("backend foundation", () => {
     const owner = await registerUser("archive-owner@example.com");
     const member = await registerUser("archive-member@example.com");
     const project = await createProject(owner.token);
-    await request(app)
+    const membership = await request(app)
       .patch(`/api/v1/projects/${project.id}/members`)
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ memberIds: [member.id] });
+    await request(app)
+      .post(
+        `/api/v1/project-membership-invitations/${membership.body.data.invitations[0].invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ decision: "accepted" });
     const upload = await request(app)
       .post(`/api/v1/projects/${project.id}/documents`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -429,10 +532,16 @@ describe("backend foundation", () => {
     const owner = await registerUser("trash-project-owner@example.com");
     const member = await registerUser("trash-project-member@example.com");
     const project = await createProject(owner.token);
-    await request(app)
+    const membership = await request(app)
       .patch(`/api/v1/projects/${project.id}/members`)
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ memberIds: [member.id] });
+    await request(app)
+      .post(
+        `/api/v1/project-membership-invitations/${membership.body.data.invitations[0].invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ decision: "accepted" });
     const upload = await request(app)
       .post(`/api/v1/projects/${project.id}/documents`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -824,6 +933,17 @@ describe("backend foundation", () => {
       .put(`/api/v1/admin/project-access/${project.id}/members`)
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ memberIds: [member.id] });
+    const membershipInvitationId = memberUpdate.body.data.invitations[0]
+      .invitationId as string;
+    const membershipInvitation = await request(bootstrapApp)
+      .get(`/api/v1/project-membership-invitations/${membershipInvitationId}`)
+      .set("Authorization", `Bearer ${member.token}`);
+    const memberAcceptance = await request(bootstrapApp)
+      .post(
+        `/api/v1/project-membership-invitations/${membershipInvitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ decision: "accepted" });
     const adminMembershipAttempt = await request(bootstrapApp)
       .put(`/api/v1/admin/project-access/${project.id}/members`)
       .set("Authorization", `Bearer ${adminToken}`)
@@ -834,7 +954,7 @@ describe("backend foundation", () => {
     const auditEvents = await storage.listAuditEvents(1, 100);
     const membershipEvent = auditEvents.items.find(
       (event) =>
-        event.action === "project.members_changed" &&
+        event.action === "project.member_invited" &&
         event.actorUserId === adminCandidate.id,
     );
 
@@ -859,15 +979,25 @@ describe("backend foundation", () => {
       name: "Test project",
       status: "active",
       ownerUserId: owner.id,
-      memberIds: [member.id],
-      memberCount: 1,
+      memberIds: [],
+      memberCount: 0,
+      invitations: [
+        {
+          invitationId: membershipInvitationId,
+          invitedUserId: member.id,
+          emailStatus: "disabled",
+          alreadyPending: false,
+        },
+      ],
     });
+    expect(membershipInvitation.status).toBe(200);
+    expect(memberAcceptance.status).toBe(200);
+    expect(memberAcceptance.body.data.invitation.status).toBe("accepted");
     expect(adminMembershipAttempt.status).toBe(400);
     expect(memberProject.status).toBe(200);
     expect(membershipEvent).toMatchObject({
       actorUserId: adminCandidate.id,
-      before: { memberIds: [] },
-      after: { memberIds: [member.id] },
+      after: { invitedUserId: member.id },
     });
   });
 
@@ -910,6 +1040,15 @@ describe("backend foundation", () => {
       )
       .set("Authorization", `Bearer ${adminToken}`);
     const memberLogin = await login("membership-member@example.com");
+    const projectBeforeAcceptance = await request(bootstrapApp)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${memberLogin}`);
+    const acceptedMembership = await request(bootstrapApp)
+      .post(
+        `/api/v1/project-membership-invitations/${memberAdded.body.data.invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${memberLogin}`)
+      .send({ decision: "accepted" });
     const projectAfterFreshLogin = await request(bootstrapApp)
       .get(`/api/v1/projects/${project.id}`)
       .set("Authorization", `Bearer ${memberLogin}`);
@@ -941,15 +1080,14 @@ describe("backend foundation", () => {
     expect(memberAdded.body.data).toMatchObject({
       projectId: project.id,
       memberId: member.id,
-      memberCount: 1,
+      memberCount: 0,
       alreadyMember: false,
+      invitationPending: true,
+      emailStatus: "disabled",
     });
-    expect(membersAfterAdd.body.data.items).toEqual([
-      expect.objectContaining({
-        id: member.id,
-        email: "membership-member@example.com",
-      }),
-    ]);
+    expect(membersAfterAdd.body.data.items).toEqual([]);
+    expect(projectBeforeAcceptance.status).toBe(404);
+    expect(acceptedMembership.body.data.invitation.status).toBe("accepted");
     expect(projectAfterFreshLogin.status).toBe(200);
     expect(memberRemoved.body.data).toMatchObject({
       memberId: member.id,
@@ -961,9 +1099,85 @@ describe("backend foundation", () => {
       auditEvents.items.filter(
         (event) =>
           event.action === "project.members_changed" &&
-          event.actorUserId === adminCandidate.id,
+          event.actorUserId === member.id,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+  });
+
+  it("restricts project invitation responses to the invitee and supports rejection", async () => {
+    const owner = await registerUser("invitation-owner@example.com");
+    const invitee = await registerUser("invitation-recipient@example.com");
+    const otherUser = await registerUser("invitation-other@example.com");
+    const project = await createProject(owner.token);
+    const invitationResponse = await request(app)
+      .patch(`/api/v1/projects/${project.id}/members`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ memberIds: [invitee.id] });
+    const invitation = invitationResponse.body.data.invitations[0] as {
+      invitationId: string;
+    };
+    const unauthorizedResponse = await request(app)
+      .post(
+        `/api/v1/project-membership-invitations/${invitation.invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${otherUser.token}`)
+      .send({ decision: "accepted" });
+    const projectBeforeResponse = await request(app)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${invitee.token}`);
+    const rejection = await request(app)
+      .post(
+        `/api/v1/project-membership-invitations/${invitation.invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${invitee.token}`)
+      .send({ decision: "rejected" });
+    const repeatedResponse = await request(app)
+      .post(
+        `/api/v1/project-membership-invitations/${invitation.invitationId}/respond`,
+      )
+      .set("Authorization", `Bearer ${invitee.token}`)
+      .send({ decision: "accepted" });
+    const projectAfterRejection = await request(app)
+      .get(`/api/v1/projects/${project.id}`)
+      .set("Authorization", `Bearer ${invitee.token}`);
+
+    expect(invitationResponse.status).toBe(200);
+    expect(unauthorizedResponse.status).toBe(404);
+    expect(projectBeforeResponse.status).toBe(404);
+    expect(rejection.body.data.invitation.status).toBe("rejected");
+    expect(repeatedResponse.status).toBe(409);
+    expect(projectAfterRejection.status).toBe(404);
+    expect(sendProjectMembershipInvitation).toHaveBeenCalledWith(
+      "invitation-recipient@example.com",
+      "invitation-owner@example.com",
+      "Test project",
+      expect.stringContaining(
+        `/app/project-membership-invitations/${invitation.invitationId}`,
+      ),
+    );
+  });
+
+  it("reports disabled invitation email while retaining the setup link", async () => {
+    const admin = await registerUser("invite-status-admin@example.com");
+    await storage.updateUserRoles(admin.id, ["admin"]);
+    const adminToken = await login("invite-status-admin@example.com");
+    sendInvitation.mockResolvedValueOnce("disabled");
+
+    const invitation = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "invite-status-owner@example.com",
+        message: "We are pleased to invite you to join our workspace.",
+        roles: ["product_owner"],
+      });
+
+    expect(invitation.status).toBe(201);
+    expect(invitation.body.data).toMatchObject({
+      emailStatus: "disabled",
+      emailSent: false,
+    });
+    expect(invitation.body.data.invitationUrl).toContain("token=");
   });
 
   it("creates one-time admin invitations and activates the account only after password setup", async () => {
@@ -975,16 +1189,18 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
         email: "invited-owner@example.com",
+        message: "We are pleased to invite you to join our workspace.",
         roles: ["product_owner"],
       });
     const inviteUrl = new URL(invitation.body.data.invitationUrl as string);
     const inviteToken = inviteUrl.searchParams.get("token");
-    expect(invitation.body.data.emailSent).toBe(false);
+    expect(invitation.body.data.emailSent).toBe(true);
     const resentInvitation = await request(app)
       .post("/api/v1/admin/users/invitations")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
         email: "invited-owner@example.com",
+        message: "We are pleased to invite you to join our workspace.",
         roles: ["product_owner"],
       });
     const resentInviteUrl = new URL(
@@ -1029,9 +1245,19 @@ describe("backend foundation", () => {
     expect(inviteUrl.pathname).toBe("/reset-password");
     expect(invitation.body.data.expiresAt).toEqual(expect.any(String));
     expect(invitation.body.data.invitationResent).toBe(false);
+    expect(invitation.body.data.emailStatus).toBe("sent");
     expect(resentInvitation.status).toBe(200);
     expect(resentInvitation.body.data.invitationResent).toBe(true);
+    expect(resentInvitation.body.data.emailStatus).toBe("sent");
     expect(resentInviteToken).not.toBe(inviteToken);
+    expect(sendInvitation).toHaveBeenNthCalledWith(
+      1,
+      "invited-owner@example.com",
+      invitation.body.data.invitationUrl,
+      "We are pleased to invite you to join our workspace.",
+      "invite-admin@example.com",
+      invitation.body.data.expiresAt,
+    );
     expect(revokedInvite.status).toBe(400);
     expect(accountSetup.status).toBe(200);
     expect(reusedInvite.status).toBe(400);
@@ -1059,9 +1285,33 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
         email: "invalid-role-invite@example.com",
+        message: "You are invited to join our workspace.",
         roles: ["admin", "business_analyst"],
       });
     expect(mixedRoleInvitation.status).toBe(400);
+
+    const invalidMessageInvitation = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "invalid-message-invite@example.com",
+        message: " ",
+        roles: ["product_owner"],
+      });
+    expect(invalidMessageInvitation.status).toBe(400);
+
+    sendInvitation.mockRejectedValueOnce(new Error("SMTP delivery failed"));
+    const emailFailure = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "mail-failure@example.com",
+        message: "We are pleased to invite you to join our workspace.",
+        roles: ["product_owner"],
+      });
+    expect(emailFailure.status).toBe(201);
+    expect(emailFailure.body.data.emailStatus).toBe("failed");
+    expect(emailFailure.body.data.invitationUrl).toContain("token=");
   });
 
   it("enforces role-scoped project resources and keeps delivery feedback separate from approval", async () => {
@@ -1081,6 +1331,22 @@ describe("backend foundation", () => {
       .patch(`/api/v1/projects/${project.id}/members`)
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ memberIds: [productOwner.id, deliveryLead.id] });
+    for (const invitation of membership.body.data.invitations as Array<{
+      invitationId: string;
+      invitedUserId: string;
+    }>) {
+      const inviteeToken =
+        invitation.invitedUserId === productOwner.id
+          ? productOwnerToken
+          : deliveryLeadToken;
+      const accepted = await request(app)
+        .post(
+          `/api/v1/project-membership-invitations/${invitation.invitationId}/respond`,
+        )
+        .set("Authorization", `Bearer ${inviteeToken}`)
+        .send({ decision: "accepted" });
+      expect(accepted.status).toBe(200);
+    }
     const requirement = await request(app)
       .post(`/api/v1/projects/${project.id}/requirements`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -1125,7 +1391,10 @@ describe("backend foundation", () => {
     const deliveryDecision = await request(app)
       .patch(`/api/v1/approvals/${deliveryApproval.body.data.id}`)
       .set("Authorization", `Bearer ${deliveryLeadToken}`)
-      .send({ decision: "approved" });
+      .send({
+        decision: "approved",
+        reviewerComments: "I cannot review my own submission.",
+      });
     const feedback = await request(app)
       .post(
         `/api/v1/approvals/${deliveryApproval.body.data.id}/delivery-feedback`,
@@ -1213,10 +1482,37 @@ describe("backend foundation", () => {
       }),
     ]);
     expect(analystQueue.status).toBe(403);
-    expect(deliveryApprovalDetail.status).toBe(403);
+    expect(deliveryApprovalDetail.status).toBe(200);
     expect(deliveryDecision.status).toBe(403);
     expect(feedback.status).toBe(200);
     expect(productOwnerDecision.status).toBe(200);
+    expect(sendApprovalSubmission).toHaveBeenCalledWith(
+      "resource-product-owner@example.com",
+      "resource-owner@example.com",
+      "Test project",
+      "Delivery risk",
+      expect.stringContaining(
+        `/app/projects/${project.id}/approvals?approvalId=`,
+      ),
+    );
+    expect(sendApprovalDecision).toHaveBeenCalledWith(
+      "resource-owner@example.com",
+      "resource-product-owner@example.com",
+      "Test project",
+      "Delivery risk",
+      "approved",
+      "The risk is acceptable with mitigation.",
+      expect.stringContaining(`/app/projects/${project.id}/artifacts`),
+    );
+    expect(sendDeliverableApproved).toHaveBeenCalledWith(
+      "resource-delivery-lead@example.com",
+      "Test project",
+      "Delivery risk",
+      "resource-product-owner@example.com",
+      expect.stringContaining(
+        `/app/projects/${project.id}/delivery-reviews?approvalId=`,
+      ),
+    );
     expect(feedbackAfterDecision.status).toBe(200);
     expect(forbiddenFeedbackWithdrawal.status).toBe(403);
     expect(withdrawnFeedback.status).toBe(200);
@@ -1366,6 +1662,22 @@ describe("backend foundation", () => {
       .patch(`/api/v1/projects/${project.id}/members`)
       .set("Authorization", `Bearer ${owner.token}`)
       .send({ memberIds: [reviewer.id, regularMember.id] });
+    for (const invitation of members.body.data.invitations as Array<{
+      invitationId: string;
+      invitedUserId: string;
+    }>) {
+      const inviteeToken =
+        invitation.invitedUserId === reviewer.id
+          ? reviewerLogin
+          : regularMember.token;
+      const accepted = await request(app)
+        .post(
+          `/api/v1/project-membership-invitations/${invitation.invitationId}/respond`,
+        )
+        .set("Authorization", `Bearer ${inviteeToken}`)
+        .send({ decision: "accepted" });
+      expect(accepted.status).toBe(200);
+    }
     const requirement = await request(app)
       .post(`/api/v1/projects/${project.id}/requirements`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -1433,6 +1745,13 @@ describe("backend foundation", () => {
     const ownReview = await request(app)
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${ownerReviewerLogin}`)
+      .send({
+        decision: "approved",
+        reviewerComments: "I cannot review my own submission.",
+      });
+    const missingDecisionReason = await request(app)
+      .patch(`/api/v1/approvals/${approval.body.data.id}`)
+      .set("Authorization", `Bearer ${reviewerLogin}`)
       .send({ decision: "approved" });
     const unauthorizedReview = await request(app)
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
@@ -1451,7 +1770,7 @@ describe("backend foundation", () => {
     const duplicateDecision = await request(app)
       .patch(`/api/v1/approvals/${approval.body.data.id}`)
       .set("Authorization", `Bearer ${reviewerLogin}`)
-      .send({ decision: "rejected" });
+      .send({ decision: "rejected", reviewerComments: "Already decided." });
     const artifactApproval = await request(app)
       .post("/api/v1/approvals")
       .set("Authorization", `Bearer ${owner.token}`)
@@ -1513,8 +1832,8 @@ describe("backend foundation", () => {
       .set("Authorization", `Bearer ${owner.token}`);
 
     expect(roleUpdate.status).toBe(200);
-    expect(members.body.data.members).toContain(reviewer.id);
-    expect(members.body.data.members).toContain(regularMember.id);
+    expect(members.body.data.members).toEqual([]);
+    expect(members.body.data.invitations).toHaveLength(2);
     expect(artifact.status).toBe(201);
     expect(artifactEdit.status).toBe(200);
     expect(artifactEdit.body.data).toMatchObject({
@@ -1546,6 +1865,7 @@ describe("backend foundation", () => {
     expect(invalidApprovalFilter.status).toBe(400);
     expect(unauthorizedApprovalDetail.status).toBe(403);
     expect(ownReview.status).toBe(403);
+    expect(missingDecisionReason.status).toBe(400);
     expect(unauthorizedReview.status).toBe(403);
     expect(decision.status).toBe(200);
     expect(approvedQueue.body.data).toMatchObject({
@@ -1740,6 +2060,26 @@ describe("backend foundation", () => {
     expect(
       openApiDocument.paths["/projects/{projectId}/delivery-reviews"].get,
     ).toBeDefined();
+    expect(
+      openApiDocument.paths["/project-membership-invitations/{id}"].get,
+    ).toBeDefined();
+    expect(
+      openApiDocument.paths[
+        "/project-membership-invitations/{id}/respond"
+      ].post,
+    ).toBeDefined();
+    expect(openApiDocument.paths["/approvals/{id}"].patch.requestBody).toMatchObject({
+      content: {
+        "application/json": {
+          schema: {
+            oneOf: [
+              { required: ["reviewerComments"] },
+              { required: ["comments"] },
+            ],
+          },
+        },
+      },
+    });
     expect(
       openApiDocument.paths["/approvals/{id}/delivery-feedback"].post,
     ).toBeDefined();

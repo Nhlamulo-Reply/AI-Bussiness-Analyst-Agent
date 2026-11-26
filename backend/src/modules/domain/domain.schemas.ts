@@ -77,6 +77,32 @@ export const projectSchema = z
     }
   });
 
+export const projectMembershipInvitationSchema = z
+  .object({
+    id: z.string().min(1),
+    projectId: z.string().min(1),
+    invitedUserId: z.string().min(1),
+    invitedByUserId: z.string().min(1),
+    status: z.enum(["pending", "accepted", "rejected", "cancelled"]),
+    createdAt: timestampSchema,
+    updatedAt: timestampSchema,
+    respondedAt: timestampSchema.optional(),
+  })
+  .strict()
+  .superRefine((invitation, context) => {
+    if (
+      (invitation.status === "pending") !==
+      (invitation.respondedAt === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["respondedAt"],
+        message:
+          "Pending invitations must not have a response time; completed invitations require one.",
+      });
+    }
+  });
+
 export const templateTypeSchema = z.enum([
   "project_intake",
   "requirements",
@@ -241,7 +267,7 @@ export const approvalSchema = z
     reviewerUserId: z.string().min(1).optional(),
     decision: z.enum(["pending", "approved", "rejected", "changes_requested"]),
     comments: z.string().trim().max(4000),
-    reviewerComments: z.string().trim().max(4000).optional(),
+    reviewerComments: z.string().trim().min(1).max(4000).optional(),
     deliveryFeedback: z
       .array(
         z
@@ -306,6 +332,10 @@ export const auditEventSchema = z
       "project.exported",
       "project.updated",
       "project.members_changed",
+      "project.member_invited",
+      "project.member_invitation_accepted",
+      "project.member_invitation_rejected",
+      "project.member_invitation_cancelled",
       "project.trashed",
       "project.restored",
       "project.purged",
@@ -533,14 +563,15 @@ export const createApprovalBodySchema = z
 export const patchApprovalBodySchema = z
   .object({
     decision: z.enum(["approved", "rejected", "changes_requested"]),
-    comments: z.string().trim().max(4000).default(""),
+    comments: z.string().trim().min(1).max(4000).optional(),
     reviewerComments: z.string().trim().max(4000).optional(),
   })
   .strict()
   .refine(
     (value) =>
-      value.reviewerComments === undefined || value.comments.length === 0,
-    "Use either comments or reviewerComments, not both.",
+      (value.comments === undefined) !==
+      (value.reviewerComments === undefined),
+    "Provide a reason using comments or reviewerComments, but not both.",
   );
 
 export const createDeliveryFeedbackBodySchema = z
@@ -599,6 +630,9 @@ export const workflowJobBodySchema = z
   });
 
 export type ProjectRecord = z.infer<typeof projectSchema>;
+export type ProjectMembershipInvitationRecord = z.infer<
+  typeof projectMembershipInvitationSchema
+>;
 export function hasProjectContext(project: ProjectRecord): boolean {
   return Boolean(
     project.description.trim() ||

@@ -29,7 +29,40 @@ describe("SmtpEmailProvider", () => {
     jest.restoreAllMocks();
   });
 
-  it("sends an account invitation with an escaped setup link", async () => {
+  it("sends a formal message with the one-time link and safely escaped admin text", async () => {
+    const sendMail = jest.fn().mockResolvedValue({});
+    const provider = new SmtpEmailProvider(config, { sendMail });
+    const invitationUrl =
+      "https://app.example.test/reset-password?token=one-time&next=setup";
+
+    await expect(
+      provider.sendInvitation(
+        "invitee@example.test",
+        invitationUrl,
+        "Please join us. <script>alert('no')</script>",
+        "admin@example.test",
+        "2026-03-04T05:06:07.000Z",
+      ),
+    ).resolves.toBe("sent");
+
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "noreply@example.test",
+        to: "invitee@example.test",
+        subject: "Invitation to join AI Business Analyst Agent",
+        text: expect.stringContaining(invitationUrl),
+        html: expect.stringContaining(
+          'href="https://app.example.test/reset-password?token=one-time&amp;next=setup"',
+        ),
+      }),
+    );
+    const message = sendMail.mock.calls[0]?.[0];
+    expect(message?.html).toContain("Please join us.");
+    expect(message?.html).not.toContain("<script>");
+    expect(message?.text).toContain("admin@example.test");
+  });
+
+  it("supports the two-argument invitation API with an escaped setup link", async () => {
     const sendMail = jest.fn().mockResolvedValue({});
     jest
       .spyOn(nodemailer, "createTransport")
@@ -50,5 +83,71 @@ describe("SmtpEmailProvider", () => {
         ),
       }),
     );
+  });
+
+  it("uses formal account, membership, review, and approval decision messages", async () => {
+    const sendMail = jest.fn().mockResolvedValue({});
+    const provider = new SmtpEmailProvider(config, { sendMail });
+
+    await provider.sendAccountCreated(
+      "analyst@example.test",
+      "https://app.example.test/pending-access",
+    );
+    await provider.sendProjectMembershipInvitation(
+      "member@example.test",
+      "owner@example.test",
+      "Customer onboarding",
+      "https://app.example.test/app/project-membership-invitations/invite-1",
+    );
+    await provider.sendApprovalSubmission(
+      "owner@example.test",
+      "analyst@example.test",
+      "Customer onboarding",
+      "Risk assessment",
+      "https://app.example.test/app/projects/project-1/approvals?approvalId=approval-1",
+    );
+    await provider.sendApprovalDecision(
+      "analyst@example.test",
+      "owner@example.test",
+      "Customer onboarding",
+      "Risk assessment",
+      "changes_requested",
+      "Please clarify the mitigation owner.",
+      "https://app.example.test/app/projects/project-1/artifacts",
+    );
+    await provider.sendDeliverableApproved(
+      "lead@example.test",
+      "Customer onboarding",
+      "Risk assessment",
+      "owner@example.test",
+      "https://app.example.test/app/projects/project-1/delivery-reviews?approvalId=approval-1",
+    );
+
+    expect(sendMail).toHaveBeenCalledTimes(5);
+    expect(sendMail.mock.calls[0]?.[0]).toMatchObject({
+      to: "analyst@example.test",
+      subject: "Your account is awaiting administrator review",
+      text: expect.stringContaining("Dear colleague"),
+    });
+    expect(sendMail.mock.calls[1]?.[0]).toMatchObject({
+      to: "member@example.test",
+      text: expect.stringContaining(
+        "https://app.example.test/app/project-membership-invitations/invite-1",
+      ),
+    });
+    expect(sendMail.mock.calls[2]?.[0]).toMatchObject({
+      to: "owner@example.test",
+      text: expect.stringContaining(
+        "https://app.example.test/app/projects/project-1/approvals?approvalId=approval-1",
+      ),
+    });
+    expect(sendMail.mock.calls[3]?.[0]).toMatchObject({
+      to: "analyst@example.test",
+      text: expect.stringContaining("Please clarify the mitigation owner."),
+    });
+    expect(sendMail.mock.calls[4]?.[0]).toMatchObject({
+      to: "lead@example.test",
+      subject: "An approved deliverable is ready for delivery review",
+    });
   });
 });

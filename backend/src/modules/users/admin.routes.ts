@@ -6,6 +6,9 @@ import {
   InvalidUserRolesError,
   DuplicateTemplateError,
   LastActiveAdminError,
+  ProjectMembershipAlreadyActiveError,
+  ProjectMembershipInviteeIneligibleError,
+  ProjectMembershipProjectInactiveError,
   type Storage,
 } from "../../config/storage";
 import { DuplicateUserError } from "../auth/user.repository";
@@ -23,7 +26,9 @@ import {
 } from "../domain/domain.schemas";
 import { hasExclusiveAdminRole, userRoles } from "../auth/user.repository";
 import { requirePermission } from "../../common/middleware/authorization";
-import { createEmailProvider } from "../../integrations/email/email-provider";
+import type { Logger } from "pino";
+import type { EmailProvider } from "../../integrations/email/email-provider";
+import type { ApplicationEmailNotifications } from "../../integrations/email/application-email-notifications";
 
 const activeStatusSchema = z.object({ active: z.boolean() }).strict();
 const addProjectMemberSchema = z
@@ -53,6 +58,7 @@ const updateTemplateSchema = z
 const invitationSchema = z
   .object({
     email: z.string().trim().pipe(z.email()),
+    message: z.string().trim().min(3).max(500),
     roles: z
       .array(z.enum(userRoles))
       .min(1)
@@ -80,6 +86,9 @@ export function createAdminRouter(
     | "smtpPass"
     | "emailFrom"
   >,
+  emailProvider: EmailProvider,
+  logger: Logger,
+  emailNotifications: ApplicationEmailNotifications,
 ): Router {
   const router = Router();
   router.use(authenticate(config.jwtSecret, storage));
@@ -124,11 +133,25 @@ export function createAdminRouter(
           expiresAt,
           actorUserId: actor.id,
         });
-        const emailSent = config.emailProvider === "smtp";
-        await createEmailProvider(config as AppConfig).sendInvitation(
-          invitation.user.email,
-          setupUrl.toString(),
-        );
+        let emailStatus: "sent" | "disabled" | "failed";
+        try {
+          emailStatus = await emailProvider.sendInvitation(
+            invitation.user.email,
+            setupUrl.toString(),
+            request.body.message,
+            actor.email,
+            expiresAt,
+          );
+        } catch (error) {
+          emailStatus = "failed";
+          logger.error(
+            {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              invitationUserId: invitation.user.id,
+            },
+            "Invitation email delivery failed",
+          );
+        }
         response.status(invitation.resent ? 200 : 201).json({
           success: true,
           data: {
@@ -141,7 +164,8 @@ export function createAdminRouter(
             invitationUrl: setupUrl.toString(),
             expiresAt,
             invitationResent: invitation.resent,
-            emailSent,
+            emailStatus,
+            emailSent: emailStatus === "sent",
           },
           requestId: request.id,
         });
@@ -286,27 +310,69 @@ export function createAdminRouter(
             ],
           );
         }
-        const alreadyMember = project.members.includes(memberId);
-        const updated = await storage.addProjectMember(
+        const alreadyMember =
+          project.ownerUserId === memberId || project.members.includes(memberId);
+        if (alreadyMember) {
+          response.status(200).json({
+            success: true,
+            data: {
+              projectId: project.id,
+              projectName: project.name,
+              memberId,
+              memberCount: project.members.length,
+              alreadyMember: true,
+            },
+            requestId: request.id,
+          });
+          return;
+        }
+        const invitation = await storage.createProjectMembershipInvitation(
           projectId,
           memberId,
           actor.id,
         );
-        if (!updated) {
+        if (!invitation) {
           throw new AppError(404, "NOT_FOUND", "Project not found.");
         }
+        const emailStatus = await emailNotifications.projectMemberInvited(
+          invitation.invitation.id,
+          member,
+          actor,
+          project,
+        );
         response.status(200).json({
           success: true,
           data: {
-            projectId: updated.id,
-            projectName: updated.name,
+            projectId: project.id,
+            projectName: project.name,
             memberId,
-            memberCount: updated.members.length,
-            alreadyMember,
+            memberCount: project.members.length,
+            alreadyMember: false,
+            invitationId: invitation.invitation.id,
+            invitationPending: true,
+            invitationResent: invitation.alreadyPending,
+            emailStatus,
           },
           requestId: request.id,
         });
       } catch (error) {
+        if (error instanceof ProjectMembershipInviteeIneligibleError) {
+          next(
+            new AppError(
+              400,
+              "VALIDATION_ERROR",
+              "Project members must be active non-administrator users with a project role.",
+            ),
+          );
+          return;
+        }
+        if (
+          error instanceof ProjectMembershipAlreadyActiveError ||
+          error instanceof ProjectMembershipProjectInactiveError
+        ) {
+          next(new AppError(409, "CONFLICT", error.message));
+          return;
+        }
         next(error);
       }
     },
@@ -325,6 +391,12 @@ export function createAdminRouter(
           throw new AppError(404, "NOT_FOUND", "Project not found.");
         }
         const removed = project.members.includes(memberId);
+        const cancelledInvitation =
+          await storage.cancelProjectMembershipInvitation(
+            projectId,
+            memberId,
+            actor.id,
+          );
         const updated = await storage.removeProjectMember(
           projectId,
           memberId,
@@ -341,6 +413,7 @@ export function createAdminRouter(
             memberId,
             memberCount: updated.members.length,
             removed,
+            invitationCancelled: cancelledInvitation !== null,
           },
           requestId: request.id,
         });
@@ -384,7 +457,7 @@ export function createAdminRouter(
             );
           }
         }
-        const updated = await storage.replaceProjectMembers(
+        const updated = await storage.replaceProjectMembersWithInvitations(
           projectId,
           request.body.memberIds as string[],
           actor.id,
@@ -392,19 +465,65 @@ export function createAdminRouter(
         if (!updated) {
           throw new AppError(404, "NOT_FOUND", "Project not found.");
         }
+        const invitationResults = await Promise.all(
+          updated.invitations.map(async ({ invitation, alreadyPending }) => {
+            const invitee = await storage.findById(invitation.invitedUserId);
+            if (!invitee) {
+              return {
+                invitationId: invitation.id,
+                invitedUserId: invitation.invitedUserId,
+                emailStatus: "failed" as const,
+                alreadyPending,
+              };
+            }
+            const emailStatus = await emailNotifications.projectMemberInvited(
+              invitation.id,
+              invitee,
+              actor,
+              updated.project,
+            );
+            return {
+              invitationId: invitation.id,
+              invitedUserId: invitation.invitedUserId,
+              emailStatus,
+              alreadyPending,
+            };
+          }),
+        );
         response.status(200).json({
           success: true,
           data: {
-            id: updated.id,
-            name: updated.name,
-            status: updated.status,
-            ownerUserId: updated.ownerUserId,
-            memberIds: updated.members,
-            memberCount: updated.members.length,
+            id: updated.project.id,
+            name: updated.project.name,
+            status: updated.project.status,
+            ownerUserId: updated.project.ownerUserId,
+            memberIds: updated.project.members,
+            memberCount: updated.project.members.length,
+            invitations: invitationResults,
           },
           requestId: request.id,
         });
       } catch (error) {
+        if (error instanceof ProjectMembershipInviteeIneligibleError) {
+          next(
+            new AppError(
+              400,
+              "VALIDATION_ERROR",
+              "Project members must be active non-administrator users with a project role.",
+            ),
+          );
+          return;
+        }
+        if (error instanceof ProjectMembershipProjectInactiveError) {
+          next(
+            new AppError(
+              409,
+              "CONFLICT",
+              "Archived projects cannot create membership invitations.",
+            ),
+          );
+          return;
+        }
         next(error);
       }
     },

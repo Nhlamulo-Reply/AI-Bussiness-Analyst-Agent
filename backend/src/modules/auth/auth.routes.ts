@@ -13,6 +13,7 @@ import type { Storage } from "../../config/storage";
 import { createEmailProvider } from "../../integrations/email/email-provider";
 import { AppError } from "../../common/errors/app-error";
 import { OAuth2Client } from "google-auth-library";
+import type { ApplicationEmailNotifications } from "../../integrations/email/application-email-notifications";
 
 const credentialsSchema = z.object({
   email: z.string().trim().pipe(z.email()),
@@ -35,6 +36,7 @@ export function createAuthRouter(
   config: AuthConfig & Partial<AppConfig>,
   sessionUsers: Pick<UserRepository, "findById"> = users,
   storage?: Storage,
+  emailNotifications?: ApplicationEmailNotifications,
 ): Router {
   const router = Router();
   const service = new AuthService(users, config);
@@ -59,6 +61,7 @@ export function createAuthRouter(
   router.post("/register", loginLimiter, validateBody(credentialsSchema), async (request, response, next) => {
     try {
       const result = await service.register(request.body.email, request.body.password);
+      await emailNotifications?.accountCreated(result.user);
       response.status(201).json({ success: true, data: result, requestId: request.id });
     } catch (error) {
       next(error);
@@ -287,6 +290,7 @@ export function createAuthRouter(
       }
 
       let user = await storage.findByGoogleSubject(payload.sub);
+      let createdNewUser = false;
       if (!user) {
         const existingEmailUser = await users.findByEmail(
           payload.email.trim().toLowerCase(),
@@ -307,6 +311,7 @@ export function createAuthRouter(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
+        createdNewUser = true;
         await storage.invalidatePasswordResetTokens(user.id);
       }
       if (!user.active) {
@@ -317,6 +322,9 @@ export function createAuthRouter(
         );
       }
       await storage.recordGoogleLogin(user.id);
+      if (createdNewUser) {
+        await emailNotifications?.accountCreated(user);
+      }
       const session = service.createSession({
         ...user,
         sessionVersion: user.sessionVersion ?? 0,

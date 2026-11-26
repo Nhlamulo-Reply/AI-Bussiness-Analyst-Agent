@@ -42,6 +42,10 @@ export const auditEventSchema = z
       "project.exported",
       "project.updated",
       "project.members_changed",
+      "project.member_invited",
+      "project.member_invitation_accepted",
+      "project.member_invitation_rejected",
+      "project.member_invitation_cancelled",
       "document.uploaded",
       "document.archived",
       "document.restored",
@@ -104,6 +108,7 @@ export const bootstrapAdminResponseSchema = z
 export const inviteUserInputSchema = z
   .object({
     email: z.string().trim().pipe(z.email()),
+    message: z.string().trim().min(3).max(500),
     roles: z
       .array(z.enum(userRoles))
       .min(1)
@@ -129,6 +134,7 @@ export const inviteUserResponseSchema = z
     invitationUrl: z.url(),
     expiresAt: z.iso.datetime(),
     invitationResent: z.boolean(),
+    emailStatus: z.enum(["sent", "disabled", "failed"]),
   })
   .strict();
 
@@ -163,6 +169,30 @@ export const projectMembershipUpdateSchema = z
     memberCount: z.number().int().nonnegative(),
     alreadyMember: z.boolean().optional(),
     removed: z.boolean().optional(),
+    invitationId: z.string().min(1).optional(),
+    invitationPending: z.boolean().optional(),
+    invitationResent: z.boolean().optional(),
+    invitationCancelled: z.boolean().optional(),
+    emailStatus: z.enum(["sent", "disabled", "failed"]).optional(),
+  })
+  .strict();
+const membershipInvitationResultSchema = z
+  .object({
+    invitationId: z.string().min(1),
+    invitedUserId: z.string().min(1),
+    emailStatus: z.enum(["sent", "disabled", "failed"]),
+    alreadyPending: z.boolean(),
+  })
+  .strict();
+export const projectMembershipReplacementSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    status: z.enum(["active", "archived"]),
+    ownerUserId: z.string().min(1),
+    memberIds: z.array(z.string().min(1)),
+    memberCount: z.number().int().nonnegative(),
+    invitations: z.array(membershipInvitationResultSchema),
   })
   .strict();
 

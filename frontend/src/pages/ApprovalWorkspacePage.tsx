@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   Check,
   ChevronLeft,
@@ -79,6 +79,7 @@ const submittedAtFormatter = new Intl.DateTimeFormat(undefined, {
 
 export function ApprovalWorkspacePage() {
   const { projectId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const canReview = hasPermission(
     session?.user.roles,
@@ -92,7 +93,9 @@ export function ApprovalWorkspacePage() {
     approvalId: string;
   } | null>(null);
   const selectedApprovalId =
-    selection?.projectId === projectId ? selection.approvalId : "";
+    selection?.projectId === projectId
+      ? selection.approvalId
+      : (searchParams.get("approvalId") ?? "");
   const [reviewerComments, setReviewerComments] = useState("");
   const approvalsQuery = useProjectApprovals(
     projectId,
@@ -410,17 +413,21 @@ export function ApprovalWorkspacePage() {
                   {canDecide ? (
                     <div className="approval-page__decision">
                       <TextAreaField
-                        hint="Optional. Include context for the submitter."
-                        label="Reviewer comments"
+                        hint="Required. Explain the decision for the submitter."
+                        label="Decision reason"
                         maxLength={4000}
                         onChange={(event) =>
                           setReviewerComments(event.currentTarget.value)
                         }
+                        required
                         value={reviewerComments}
                       />
                       <div className="approval-page__actions">
                         <Button
-                          disabled={decideMutation.isPending}
+                          disabled={
+                            decideMutation.isPending ||
+                            reviewerComments.trim().length === 0
+                          }
                           leadingIcon={
                             <RotateCw
                               aria-hidden="true"
@@ -438,7 +445,10 @@ export function ApprovalWorkspacePage() {
                           Request changes
                         </Button>
                         <Button
-                          disabled={decideMutation.isPending}
+                          disabled={
+                            decideMutation.isPending ||
+                            reviewerComments.trim().length === 0
+                          }
                           leadingIcon={<Check aria-hidden="true" size={15} />}
                           onClick={() => handleDecision("rejected")}
                           size="small"
@@ -448,7 +458,10 @@ export function ApprovalWorkspacePage() {
                           Reject
                         </Button>
                         <Button
-                          disabled={decideMutation.isPending}
+                          disabled={
+                            decideMutation.isPending ||
+                            reviewerComments.trim().length === 0
+                          }
                           leadingIcon={<Check aria-hidden="true" size={15} />}
                           onClick={() => handleDecision("approved")}
                           size="small"

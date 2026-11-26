@@ -10,9 +10,9 @@ import {
   inviteUserInputSchema,
   inviteUserResponseSchema,
   projectAccessPageSchema,
-  projectAccessSchema,
   projectMemberPageSchema,
   projectMembershipUpdateSchema,
+  projectMembershipReplacementSchema,
   templateTypeSchema,
   updateUserRolesSchema,
   updateProjectMembersSchema,
@@ -150,7 +150,7 @@ export function updateAdminProjectMembers(
       method: "PUT",
       auth: "required",
       json,
-      schema: projectAccessSchema,
+      schema: projectMembershipReplacementSchema,
     },
   );
 }

@@ -15,6 +15,7 @@ import {
 import { createRequestId } from "./common/middleware/request-context";
 import { createAuthRouter } from "./modules/auth/auth.routes";
 import { createProjectRouter } from "./modules/projects/project.routes";
+import { createProjectMembershipInvitationRouter } from "./modules/projects/project-membership-invitation.routes";
 import { createRequirementRouter } from "./modules/requirements/requirement.routes";
 import { createWorkflowRouter } from "./modules/workflows/workflow.routes";
 import {
@@ -29,6 +30,11 @@ import { createTrashRouter } from "./modules/trash/trash.routes";
 import { openApiDocument } from "./docs/openapi";
 import { WorkflowService } from "./workflows/workflow-service";
 import { createStructuredOutputProvider } from "./integrations/llm/structured-output-provider";
+import {
+  createEmailProvider,
+  type EmailProvider,
+} from "./integrations/email/email-provider";
+import { ApplicationEmailNotifications } from "./integrations/email/application-email-notifications";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -36,12 +42,25 @@ export interface AppDependencies {
   users: UserRepository;
   logger?: Logger;
   workflowService?: WorkflowService;
+  emailProvider?: EmailProvider;
 }
 
 export function createApp(dependencies: AppDependencies): Express {
   //app = FastApi()
   const app = express();
   const logger = dependencies.logger ?? createLogger(dependencies.config);
+  const emailProvider =
+    dependencies.emailProvider ?? createEmailProvider(dependencies.config);
+  const emailNotifications = new ApplicationEmailNotifications(
+    dependencies.storage,
+    emailProvider,
+    logger,
+    new URL(
+      dependencies.config.passwordResetFrontendUrl ??
+        dependencies.config.googleFrontendRedirectUrl ??
+        "http://localhost:5173",
+    ).origin,
+  );
   const workflowService =
     dependencies.workflowService ??
     new WorkflowService(
@@ -105,11 +124,23 @@ export function createApp(dependencies: AppDependencies): Express {
       dependencies.config,
       dependencies.storage,
       dependencies.storage,
+      emailNotifications,
     ),
   );
   app.use(
     "/api/v1/projects",
-    createProjectRouter(dependencies.storage, dependencies.config.jwtSecret),
+    createProjectRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+      emailNotifications,
+    ),
+  );
+  app.use(
+    "/api/v1/project-membership-invitations",
+    createProjectMembershipInvitationRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+    ),
   );
   app.use(
     "/api/v1",
@@ -135,7 +166,11 @@ export function createApp(dependencies: AppDependencies): Express {
   );
   app.use(
     "/api/v1/approvals",
-    createApprovalRouter(dependencies.storage, dependencies.config.jwtSecret),
+    createApprovalRouter(
+      dependencies.storage,
+      dependencies.config.jwtSecret,
+      emailNotifications,
+    ),
   );
   app.use(
     "/api/v1/users",
@@ -143,11 +178,18 @@ export function createApp(dependencies: AppDependencies): Express {
       dependencies.storage,
       dependencies.config.jwtSecret,
       dependencies.config.adminBootstrapToken,
+      emailNotifications,
     ),
   );
   app.use(
     "/api/v1/admin",
-    createAdminRouter(dependencies.storage, dependencies.config),
+    createAdminRouter(
+      dependencies.storage,
+      dependencies.config,
+      emailProvider,
+      logger,
+      emailNotifications,
+    ),
   );
   app.use(
     "/api/v1/templates",

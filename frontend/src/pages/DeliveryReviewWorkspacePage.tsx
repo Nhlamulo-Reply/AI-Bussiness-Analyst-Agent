@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
@@ -20,6 +20,7 @@ import { hasPermission } from "../features/auth/permissions";
 import {
   approvalPageSize,
   useAddDeliveryFeedback,
+  useApprovalDetails,
   useProjectDeliveryReviews,
   useWithdrawDeliveryFeedback,
 } from "../features/approvals/approval-queries";
@@ -48,6 +49,7 @@ const decisionTones = {
 
 export function DeliveryReviewWorkspacePage() {
   const { projectId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const canReview = hasPermission(session?.user.roles, "delivery.review");
   const projectQuery = useProject(projectId);
@@ -62,14 +64,31 @@ export function DeliveryReviewWorkspacePage() {
     approvalId: string;
     feedbackId: string;
   } | null>(null);
-  const reviewsQuery = useProjectDeliveryReviews(projectId, page, canReview);
-  const feedbackMutation = useAddDeliveryFeedback(projectId);
-  const withdrawMutation = useWithdrawDeliveryFeedback(projectId);
   const selectedApprovalId =
-    selection?.projectId === projectId ? selection.approvalId : "";
-  const selectedReview = reviewsQuery.data?.items.find(
+    selection?.projectId === projectId
+      ? selection.approvalId
+      : (searchParams.get("approvalId") ?? "");
+  const reviewsQuery = useProjectDeliveryReviews(projectId, page, canReview);
+  const listedReview = reviewsQuery.data?.items.find(
     ({ approval }) => approval.id === selectedApprovalId,
   );
+  const selectedDetailsQuery = useApprovalDetails(
+    selectedApprovalId,
+    canReview &&
+      searchParams.get("approvalId") === selectedApprovalId &&
+      reviewsQuery.isFetched &&
+      !listedReview,
+  );
+  const feedbackMutation = useAddDeliveryFeedback(projectId);
+  const withdrawMutation = useWithdrawDeliveryFeedback(projectId);
+  const selectedReview =
+    listedReview ??
+    (selectedDetailsQuery.data
+      ? {
+          approval: selectedDetailsQuery.data.approval,
+          resource: selectedDetailsQuery.data.resource,
+        }
+      : undefined);
   const pageCount = Math.max(
     1,
     Math.ceil((reviewsQuery.data?.total ?? 0) / approvalPageSize),
@@ -85,6 +104,12 @@ export function DeliveryReviewWorkspacePage() {
     ? getApiErrorPresentation(
         feedbackMutation.error,
         "Your delivery feedback could not be saved.",
+      )
+    : undefined;
+  const selectedDetailsError = selectedDetailsQuery.error
+    ? getApiErrorPresentation(
+        selectedDetailsQuery.error,
+        "This delivery review could not be loaded.",
       )
     : undefined;
   const withdrawError = withdrawMutation.error
@@ -241,6 +266,16 @@ export function DeliveryReviewWorkspacePage() {
                   icon={MessageSquareText}
                   title="Select a delivery review"
                   description="Choose an item to inspect it and leave delivery feedback."
+                />
+              ) : !selectedReview && selectedDetailsQuery.isPending ? (
+                <div aria-label="Loading delivery review" role="status">
+                  <LoadingSkeleton lines={5} />
+                </div>
+              ) : !selectedReview && selectedDetailsError ? (
+                <ErrorPanel
+                  message={selectedDetailsError.message}
+                  requestId={selectedDetailsError.requestId}
+                  title="Delivery review unavailable"
                 />
               ) : !selectedReview ? (
                 <EmptyState

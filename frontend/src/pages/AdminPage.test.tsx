@@ -428,11 +428,19 @@ describe("AdminPage", () => {
         "https://app.example.test/reset-password?token=one-time-token",
       expiresAt: "2026-03-04T05:06:07.000Z",
       invitationResent: false,
+      emailStatus: "sent",
     });
     renderAdminPage(true);
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText("Email address"), "new@example.test");
+    await user.clear(
+      screen.getByLabelText("Message from the administrator"),
+    );
+    await user.type(
+      screen.getByLabelText("Message from the administrator"),
+      "We are pleased to invite you to join our workspace.",
+    );
     await user.click(
       screen.getByRole("checkbox", { name: "Product Owner / Stakeholder" }),
     );
@@ -441,6 +449,7 @@ describe("AdminPage", () => {
     await waitFor(() =>
       expect(vi.mocked(inviteAdminUser).mock.calls[0]?.[0]).toEqual({
         email: "new@example.test",
+        message: "We are pleased to invite you to join our workspace.",
         roles: ["business_analyst", "product_owner"],
       }),
     );
@@ -448,8 +457,52 @@ describe("AdminPage", () => {
       "https://app.example.test/reset-password?token=one-time-token",
     );
     expect(
-      screen.getByText(/invitation created\. share this one-time link/i),
+      screen.getByText(/invitation created and emailed/i),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the invitation link available when email delivery fails", async () => {
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      items: [adminUser],
+      page: 1,
+      limit: 100,
+      total: 1,
+    });
+    vi.mocked(listAdminAuditEvents).mockResolvedValue({
+      items: [],
+      page: 1,
+      limit: 100,
+      total: 0,
+    });
+    vi.mocked(listAdminTemplates).mockResolvedValue([]);
+    vi.mocked(inviteAdminUser).mockResolvedValue({
+      user: {
+        id: "invitee-2",
+        email: "mail-failure@example.test",
+        roles: ["business_analyst"],
+        active: false,
+      },
+      invitationUrl:
+        "https://app.example.test/reset-password?token=backup-link",
+      expiresAt: "2026-03-04T05:06:07.000Z",
+      invitationResent: false,
+      emailStatus: "failed",
+    });
+    renderAdminPage(true);
+    const user = userEvent.setup();
+
+    await user.type(
+      screen.getByLabelText("Email address"),
+      "mail-failure@example.test",
+    );
+    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "email could not be sent",
+    );
+    expect(await screen.findByLabelText("Invitation link")).toHaveValue(
+      "https://app.example.test/reset-password?token=backup-link",
+    );
   });
 
   it("searches projects and users, adds members, and confirms the update", async () => {
@@ -489,8 +542,11 @@ describe("AdminPage", () => {
       projectId: projectAccess.id,
       projectName: projectAccess.name,
       memberId: memberUser.id,
-      memberCount: 1,
+      memberCount: 0,
       alreadyMember: false,
+      invitationPending: true,
+      invitationResent: false,
+      emailStatus: "sent",
     });
     renderAdminPage(true);
     const user = userEvent.setup();
@@ -520,7 +576,9 @@ describe("AdminPage", () => {
       ),
     );
     expect(
-      await screen.findByText("member@example.test was added to Project one."),
+      await screen.findByText(
+        "The invitation email was sent. member@example.test must accept to join.",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getAllByText(
