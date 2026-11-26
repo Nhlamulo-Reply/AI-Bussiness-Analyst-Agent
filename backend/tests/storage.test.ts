@@ -2,7 +2,29 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JsonFileStorage, LastActiveAdminError } from "../src/config/storage";
+import { executionSchema } from "../src/modules/domain/domain.schemas";
 import { DuplicateUserError } from "../src/modules/auth/user.repository";
+
+describe("execution schema", () => {
+  it("normalizes null error fields from existing MongoDB records", () => {
+    const execution = executionSchema.parse({
+      id: "execution-1",
+      projectId: "project-1",
+      workflowName: "requirements-analysis",
+      status: "completed",
+      nodeStates: [
+        { node: "analysis", status: "completed", error: null },
+      ],
+      error: null,
+      createdByUserId: "user-1",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    expect(execution.error).toBeUndefined();
+    expect(execution.nodeStates[0]?.error).toBeUndefined();
+  });
+});
 
 describe("JsonFileStorage", () => {
   let temporaryDirectory: string;

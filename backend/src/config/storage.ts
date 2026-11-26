@@ -2560,7 +2560,7 @@ export class MongoStorage extends JsonFileStorage {
     if (config.mongoDnsServers?.length) {
       setServers(config.mongoDnsServers);
     }
-    this.client = new MongoClient(config.mongoUri);
+    this.client = new MongoClient(config.mongoUri, { ignoreUndefined: true });
     this.databaseName = config.mongoDatabase;
     this.legacyFilePath = resolve(config.jsonStoragePath);
   }
@@ -2602,7 +2602,16 @@ export class MongoStorage extends JsonFileStorage {
 
       const parsed = storageFileSchema.safeParse(loaded);
       if (!parsed.success) {
-        throw new Error("MongoDB storage contains an invalid data structure");
+        const issues = parsed.error.issues.slice(0, 10).map((issue) => {
+          const path = issue.path.map(String).join(".") || "<root>";
+          return `${path} (${issue.code})`;
+        });
+        const remainingCount = parsed.error.issues.length - issues.length;
+        const remaining =
+          remainingCount > 0 ? `, and ${remainingCount} more` : "";
+        throw new Error(
+          `MongoDB storage contains an invalid data structure: ${issues.join(", ")}${remaining}`,
+        );
       }
 
       const recordCount = collections.reduce(

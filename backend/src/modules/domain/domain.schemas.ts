@@ -35,6 +35,10 @@ export const artifactStatuses = [
 
 const timestampSchema = z.iso.datetime();
 const stringArraySchema = z.array(z.string().trim().min(1).max(2000)).max(100);
+const optionalExecutionErrorSchema = z.preprocess(
+  (value) => (value === null ? undefined : value),
+  z.string().max(1000).optional(),
+);
 
 export const projectSchema = z
   .object({
@@ -377,12 +381,12 @@ export const executionSchema = z
           status: z.enum(["pending", "running", "completed", "failed"]),
           startedAt: timestampSchema.optional(),
           completedAt: timestampSchema.optional(),
-          error: z.string().max(1000).optional(),
+          error: optionalExecutionErrorSchema,
         })
         .strict(),
     ),
     result: z.record(z.string(), z.unknown()).optional(),
-    error: z.string().max(1000).optional(),
+    error: optionalExecutionErrorSchema,
     startedAt: timestampSchema.optional(),
     completedAt: timestampSchema.optional(),
     durationMs: z.number().int().nonnegative().optional(),
