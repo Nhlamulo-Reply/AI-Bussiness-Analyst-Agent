@@ -1157,6 +1157,29 @@ describe("backend foundation", () => {
     );
   });
 
+  it("reports disabled invitation email while retaining the setup link", async () => {
+    const admin = await registerUser("invite-status-admin@example.com");
+    await storage.updateUserRoles(admin.id, ["admin"]);
+    const adminToken = await login("invite-status-admin@example.com");
+    sendInvitation.mockResolvedValueOnce("disabled");
+
+    const invitation = await request(app)
+      .post("/api/v1/admin/users/invitations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        email: "invite-status-owner@example.com",
+        message: "We are pleased to invite you to join our workspace.",
+        roles: ["product_owner"],
+      });
+
+    expect(invitation.status).toBe(201);
+    expect(invitation.body.data).toMatchObject({
+      emailStatus: "disabled",
+      emailSent: false,
+    });
+    expect(invitation.body.data.invitationUrl).toContain("token=");
+  });
+
   it("creates one-time admin invitations and activates the account only after password setup", async () => {
     const admin = await registerUser("invite-admin@example.com");
     await storage.updateUserRoles(admin.id, ["admin"]);
@@ -1171,6 +1194,7 @@ describe("backend foundation", () => {
       });
     const inviteUrl = new URL(invitation.body.data.invitationUrl as string);
     const inviteToken = inviteUrl.searchParams.get("token");
+    expect(invitation.body.data.emailSent).toBe(true);
     const resentInvitation = await request(app)
       .post("/api/v1/admin/users/invitations")
       .set("Authorization", `Bearer ${adminToken}`)

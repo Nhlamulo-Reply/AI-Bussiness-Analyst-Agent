@@ -75,7 +75,16 @@ export function createAdminRouter(
   storage: Storage,
   config: Pick<
     AppConfig,
-    "jwtSecret" | "passwordResetTtlSeconds" | "passwordResetFrontendUrl"
+    | "jwtSecret"
+    | "passwordResetTtlSeconds"
+    | "passwordResetFrontendUrl"
+    | "emailProvider"
+    | "smtpHost"
+    | "smtpPort"
+    | "smtpSecure"
+    | "smtpUser"
+    | "smtpPass"
+    | "emailFrom"
   >,
   emailProvider: EmailProvider,
   logger: Logger,
@@ -156,6 +165,7 @@ export function createAdminRouter(
             expiresAt,
             invitationResent: invitation.resent,
             emailStatus,
+            emailSent: emailStatus === "sent",
           },
           requestId: request.id,
         });

@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import type { AppConfig } from "../src/config/env";
 import { SmtpEmailProvider } from "../src/integrations/email/email-provider";
 
@@ -23,7 +24,11 @@ const config: AppConfig = {
   emailFrom: "noreply@example.test",
 };
 
-describe("SMTP invitation email", () => {
+describe("SmtpEmailProvider", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it("sends a formal message with the one-time link and safely escaped admin text", async () => {
     const sendMail = jest.fn().mockResolvedValue({});
     const provider = new SmtpEmailProvider(config, { sendMail });
@@ -55,6 +60,29 @@ describe("SMTP invitation email", () => {
     expect(message?.html).toContain("Please join us.");
     expect(message?.html).not.toContain("<script>");
     expect(message?.text).toContain("admin@example.test");
+  });
+
+  it("supports the two-argument invitation API with an escaped setup link", async () => {
+    const sendMail = jest.fn().mockResolvedValue({});
+    jest
+      .spyOn(nodemailer, "createTransport")
+      .mockReturnValue({ sendMail } as never);
+    const provider = new SmtpEmailProvider(config);
+    const setupUrl = "https://example.test/setup?token=abc&source=invite";
+
+    await provider.sendInvitation("invitee@example.test", setupUrl);
+
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: config.emailFrom,
+        to: "invitee@example.test",
+        subject: "You have been invited to Clarity",
+        text: expect.stringContaining(setupUrl),
+        html: expect.stringContaining(
+          "https://example.test/setup?token=abc&amp;source=invite",
+        ),
+      }),
+    );
   });
 
   it("uses formal account, membership, review, and approval decision messages", async () => {

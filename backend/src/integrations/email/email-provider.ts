@@ -21,6 +21,13 @@ type EmailTransport = {
 
 export interface EmailProvider {
   sendPasswordReset(email: string, resetUrl: string): Promise<void>;
+  sendInvitation(
+    email: string,
+    invitationUrl: string,
+    adminMessage?: string,
+    adminEmail?: string,
+    expiresAt?: string,
+  ): Promise<EmailDeliveryStatus>;
   sendAccountCreated(
     email: string,
     pendingAccessUrl: string,
@@ -34,13 +41,6 @@ export interface EmailProvider {
     email: string,
     roles: NotifiableRole[],
     signInUrl: string,
-  ): Promise<EmailDeliveryStatus>;
-  sendInvitation(
-    email: string,
-    invitationUrl: string,
-    adminMessage: string,
-    adminEmail: string,
-    expiresAt: string,
   ): Promise<EmailDeliveryStatus>;
   sendProjectMembershipInvitation(
     email: string,
@@ -76,6 +76,10 @@ export interface EmailProvider {
 export class NoopEmailProvider implements EmailProvider {
   async sendPasswordReset(): Promise<void> {}
 
+  async sendInvitation(): Promise<EmailDeliveryStatus> {
+    return "disabled";
+  }
+
   async sendAccountCreated(): Promise<EmailDeliveryStatus> {
     return "disabled";
   }
@@ -85,10 +89,6 @@ export class NoopEmailProvider implements EmailProvider {
   }
 
   async sendAccountAccessGranted(): Promise<EmailDeliveryStatus> {
-    return "disabled";
-  }
-
-  async sendInvitation(): Promise<EmailDeliveryStatus> {
     return "disabled";
   }
 
@@ -135,17 +135,40 @@ export class SmtpEmailProvider implements EmailProvider {
       to: email,
       subject: "Reset your Clarity password",
       text: `Open this link to reset your password: ${resetUrl}\n\nThis link expires soon and can be used once.`,
-      html: `<p>Open this link to reset your password:</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires soon and can be used once.</p>`,
+      html: `<p>Open this link to reset your password:</p><p><a href="${escapeHtml(resetUrl)}">Reset password</a></p><p>This link expires soon and can be used once.</p>`,
     });
   }
 
   async sendInvitation(
     email: string,
     invitationUrl: string,
-    adminMessage: string,
-    adminEmail: string,
-    expiresAt: string,
+    adminMessage?: string,
+    adminEmail?: string,
+    expiresAt?: string,
   ): Promise<EmailDeliveryStatus> {
+    if (
+      adminMessage === undefined &&
+      adminEmail === undefined &&
+      expiresAt === undefined
+    ) {
+      await this.transporter.sendMail({
+        from: this.config.emailFrom,
+        to: email,
+        subject: "You have been invited to Clarity",
+        text: `You have been invited to join Clarity. Set up your account using this link: ${invitationUrl}\n\nThis link expires soon and can be used once.`,
+        html: `<p>You have been invited to join Clarity.</p><p><a href="${escapeHtml(invitationUrl)}">Set up your account</a></p><p>This link expires soon and can be used once.</p>`,
+      });
+      return "sent";
+    }
+
+    if (
+      adminMessage === undefined ||
+      adminEmail === undefined ||
+      expiresAt === undefined
+    ) {
+      throw new Error("Complete administrator invitation details are required.");
+    }
+
     const safeMessage = escapeHtml(adminMessage).replace(/\r?\n/g, "<br>");
     const safeInvitationUrl = escapeHtml(invitationUrl);
     const safeAdminEmail = escapeHtml(adminEmail);

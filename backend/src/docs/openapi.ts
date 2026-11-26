@@ -930,7 +930,7 @@ export const openApiDocument = {
     "/admin/users/invitations": {
       post: {
         summary:
-          "Create an inactive user, email a one-time password-setup link, and return the link for secure sharing (admin only)",
+          "Create an inactive user, email a one-time password-setup link, and return the link with email delivery status (admin only)",
         security: bearerSecurity,
         requestBody: jsonBody({
           type: "object",
